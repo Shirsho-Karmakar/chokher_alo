@@ -81,6 +81,28 @@ class WholesaleAccountAdmin(admin.ModelAdmin):
     def phone_number(self, obj):
         return obj.user.phone_number
 
+    def has_add_permission(self, request):
+        # Wholesale accounts will be created by the phone-login workflow.
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        # Preserve wholesale records unless the site owner deliberately
+        # deletes one.
+        return request.user.is_superuser
+
+    def has_change_permission(self, request, obj=None):
+        if request.user.is_superuser:
+            return True
+
+        return (
+            request.user.has_perm(
+                "wholesale.change_wholesaleaccount"
+            )
+            and request.user.has_perm(
+                "wholesale.review_wholesale_account"
+            )
+        )
+
     def save_model(self, request, obj, form, change):
         previous_status = None
 

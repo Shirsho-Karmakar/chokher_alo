@@ -13,7 +13,7 @@ def generate_wholesale_reference_id() -> str:
     Generate a readable reference ID for wholesale verification calls.
 
     Ambiguous characters such as 0, O, 1 and I are excluded.
-    The database unique constraint remains the final guarantee of uniqueness.
+    The database unique constraint remains the final uniqueness guarantee.
     """
     random_part = "".join(
         secrets.choice(WHOLESALE_REFERENCE_ALPHABET)
@@ -50,7 +50,7 @@ class WholesaleAccount(models.Model):
         db_index=True,
     )
 
-    # These fields are completed by the business after approval.
+    # Completed by the business after approval.
     business_name = models.CharField(max_length=255, blank=True)
     contact_person_name = models.CharField(max_length=255, blank=True)
     gstin = models.CharField(max_length=15, blank=True)
@@ -77,6 +77,12 @@ class WholesaleAccount(models.Model):
         ordering = ["-created_at"]
         verbose_name = "Wholesale account"
         verbose_name_plural = "Wholesale accounts"
+        permissions = [
+            (
+                "review_wholesale_account",
+                "Can review and approve wholesale accounts",
+            ),
+        ]
 
     def clean(self):
         super().clean()
@@ -93,6 +99,10 @@ class WholesaleAccount(models.Model):
             raise ValidationError(
                 {"user": "The user's phone number must be verified first."}
             )
+
+    @property
+    def is_approved(self) -> bool:
+        return self.status == self.Status.APPROVED
 
     def __str__(self) -> str:
         phone_number = self.user.phone_number or "No phone"
