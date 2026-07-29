@@ -224,8 +224,13 @@ def verify_phone_otp(
     *,
     challenge_id,
     code: str,
+    expected_purpose: str | None = None,
 ) -> PhoneOTPChallenge:
     now = timezone.now()
+
+    if expected_purpose is not None:
+        _validate_purpose(expected_purpose)
+
     deferred_error = None
     verified_challenge = None
 
@@ -237,7 +242,13 @@ def verify_phone_otp(
                 .get(pk=challenge_id)
             )
 
-            if challenge.consumed_at is not None:
+            if (
+                expected_purpose is not None
+                and challenge.purpose != expected_purpose
+            ):
+                deferred_error = OTPInvalidCode()
+
+            elif challenge.consumed_at is not None:
                 deferred_error = OTPAlreadyUsed(
                     "This OTP has already been used."
                 )
