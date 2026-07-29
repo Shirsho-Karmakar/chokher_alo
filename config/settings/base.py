@@ -130,3 +130,33 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 
 WHOLESALE_LOGIN_URL = "/wholesale/login/"
+
+# Phone OTP authentication
+PHONE_OTP_PROVIDER = env(
+    "PHONE_OTP_PROVIDER",
+    default=(
+        "apps.accounts.otp.providers.console."
+        "ConsoleOTPProvider"
+    ),
+)
+PHONE_OTP_CODE_LENGTH = env.int(
+    "PHONE_OTP_CODE_LENGTH",
+    default=6,
+)
+PHONE_OTP_TTL_SECONDS = env.int(
+    "PHONE_OTP_TTL_SECONDS",
+    default=300,
+)
+PHONE_OTP_RESEND_SECONDS = env.int(
+    "PHONE_OTP_RESEND_SECONDS",
+    default=60,
+)
+PHONE_OTP_MAX_ATTEMPTS = env.int(
+    "PHONE_OTP_MAX_ATTEMPTS",
+    default=5,
+)
+PHONE_OTP_MAX_SENDS_PER_HOUR = env.int(
+    "PHONE_OTP_MAX_SENDS_PER_HOUR",
+    default=5,
+)
+
