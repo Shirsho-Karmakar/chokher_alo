@@ -1,7 +1,10 @@
 from django.contrib import admin
 from django.utils import timezone
 
-from .models import WholesaleAccount
+from .models import (
+    WholesaleAccount,
+    WholesaleVerificationContact,
+)
 
 
 @admin.register(WholesaleAccount)
@@ -124,3 +127,31 @@ class WholesaleAccountAdmin(admin.ModelAdmin):
             obj.approved_at = timezone.now()
 
         super().save_model(request, obj, form, change)
+
+
+@admin.register(WholesaleVerificationContact)
+class WholesaleVerificationContactAdmin(admin.ModelAdmin):
+    list_display = (
+        "label",
+        "phone_number",
+        "is_active",
+        "display_order",
+        "updated_at",
+    )
+    list_editable = (
+        "is_active",
+        "display_order",
+    )
+    list_filter = ("is_active",)
+    search_fields = (
+        "label",
+        "phone_number",
+    )
+    ordering = (
+        "display_order",
+        "created_at",
+    )
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )

@@ -3,7 +3,10 @@ from django.contrib.auth.decorators import login_required
 from django.http import JsonResponse
 from django.views.decorators.http import require_GET
 
-from .models import WholesaleAccount
+from .models import (
+    WholesaleAccount,
+    WholesaleVerificationContact,
+)
 from .permissions import approved_wholesale_required
 
 
@@ -42,6 +45,16 @@ def status(request):
             status=404,
         )
 
+    contacts = list(
+        WholesaleVerificationContact.objects
+        .filter(is_active=True)
+        .order_by("display_order", "created_at")
+        .values(
+            "label",
+            "phone_number",
+        )
+    )
+
     return JsonResponse(
         {
             "ok": True,
@@ -49,6 +62,13 @@ def status(request):
             "status": account.status,
             "status_label": account.get_status_display(),
             "business_name": account.business_name,
+            "verification": {
+                "instructions": (
+                    "Call one of the verification numbers and "
+                    "provide your wholesale reference ID."
+                ),
+                "contacts": contacts,
+            },
         }
     )
 

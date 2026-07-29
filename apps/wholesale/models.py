@@ -107,3 +107,63 @@ class WholesaleAccount(models.Model):
     def __str__(self) -> str:
         phone_number = self.user.phone_number or "No phone"
         return f"{self.reference_id} — {phone_number}"
+
+
+class WholesaleVerificationContact(models.Model):
+    """
+    Public contact number used for wholesale-account verification calls.
+
+    Staff can activate, deactivate, and reorder these contacts through
+    Django Admin without changing application code.
+    """
+
+    label = models.CharField(
+        max_length=100,
+        blank=True,
+        help_text="Optional public label, such as Wholesale Support.",
+    )
+    phone_number = models.CharField(
+        max_length=13,
+        unique=True,
+        help_text="Indian phone number stored in +91 format.",
+    )
+    is_active = models.BooleanField(
+        default=True,
+        db_index=True,
+    )
+    display_order = models.PositiveSmallIntegerField(default=0)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = [
+            "display_order",
+            "created_at",
+        ]
+        verbose_name = "Wholesale verification contact"
+        verbose_name_plural = "Wholesale verification contacts"
+
+    def clean(self):
+        super().clean()
+
+        from apps.accounts.otp.exceptions import InvalidPhoneNumber
+        from apps.accounts.otp.phone import (
+            normalize_indian_phone_number,
+        )
+
+        try:
+            self.phone_number = normalize_indian_phone_number(
+                self.phone_number
+            )
+        except InvalidPhoneNumber as exc:
+            raise ValidationError(
+                {"phone_number": str(exc)}
+            ) from exc
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return self.label or self.phone_number

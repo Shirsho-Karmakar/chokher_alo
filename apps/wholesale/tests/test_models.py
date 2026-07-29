@@ -1,7 +1,11 @@
 from django.contrib.auth import get_user_model
+from django.core.exceptions import ValidationError
 from django.test import TestCase
 
-from apps.wholesale.models import WholesaleAccount
+from apps.wholesale.models import (
+    WholesaleAccount,
+    WholesaleVerificationContact,
+)
 
 
 User = get_user_model()
@@ -23,3 +27,24 @@ class WholesaleAccountModelTests(TestCase):
             WholesaleAccount.Status.UNVERIFIED,
         )
         self.assertEqual(user.wholesale_account, account)
+
+
+class WholesaleVerificationContactModelTests(TestCase):
+    def test_phone_number_is_normalized_before_saving(self):
+        contact = WholesaleVerificationContact.objects.create(
+            label="Wholesale Support",
+            phone_number="9876543210",
+        )
+
+        self.assertEqual(
+            contact.phone_number,
+            "+919876543210",
+        )
+
+    def test_invalid_phone_number_is_rejected(self):
+        contact = WholesaleVerificationContact(
+            phone_number="12345",
+        )
+
+        with self.assertRaises(ValidationError):
+            contact.save()
