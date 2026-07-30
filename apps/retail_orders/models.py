@@ -572,6 +572,11 @@ class RetailOrderAddressSnapshot(models.Model):
         blank=True,
     )
     city = models.CharField(max_length=100)
+    district = models.CharField(
+        max_length=100,
+        blank=True,
+        default="",
+    )
     state = models.CharField(max_length=100)
     postal_code = models.CharField(
         max_length=6,
@@ -603,6 +608,7 @@ class RetailOrderAddressSnapshot(models.Model):
         self.locality = self.locality.strip()
         self.landmark = self.landmark.strip()
         self.city = self.city.strip()
+        self.district = self.district.strip()
         self.state = self.state.strip()
         self.country = self.country.strip()
 

@@ -91,6 +91,7 @@ def _validation_error_response(exc):
 def _cart_error_response(exc):
     conflict_codes = {
         "cart_not_open",
+        "checkout_in_progress",
         "offer_unavailable",
         "insufficient_stock",
         "price_unavailable",

@@ -185,6 +185,7 @@ class RetailOrderAddressSnapshotAdmin(admin.ModelAdmin):
         "locality",
         "landmark",
         "city",
+        "district",
         "state",
         "postal_code",
         "country",

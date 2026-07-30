@@ -251,6 +251,17 @@ def get_or_create_open_retail_cart(*, user) -> RetailCart:
     # Locking the user serializes simultaneous open-cart creation attempts.
     User.objects.select_for_update().get(pk=user.pk)
 
+    checkout_in_progress = RetailCart.objects.filter(
+        user=user,
+        status=RetailCart.Status.CHECKOUT_STARTED,
+    ).exists()
+
+    if checkout_in_progress:
+        raise RetailCartError(
+            "checkout_in_progress",
+            "An online checkout is already in progress.",
+        )
+
     cart, _ = RetailCart.objects.get_or_create(
         user=user,
         status=RetailCart.Status.OPEN,
