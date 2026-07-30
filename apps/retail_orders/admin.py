@@ -120,14 +120,17 @@ class RetailOrderAdmin(admin.ModelAdmin):
         "user__email",
         "user__phone_number",
     )
-    autocomplete_fields = (
-        "user",
-        "source_cart",
-        "store_location",
-        "cancelled_by",
-    )
+    autocomplete_fields = ()
     readonly_fields = (
         "order_number",
+        "user",
+        "source_cart",
+        "status",
+        "payment_method",
+        "payment_status",
+        "fulfillment_method",
+        "store_location",
+        "billing_same_as_shipping",
         "subtotal_including_gst",
         "delivery_fee_including_gst",
         "grand_total_including_gst",
@@ -142,6 +145,9 @@ class RetailOrderAdmin(admin.ModelAdmin):
         "shipped_at",
         "delivered_at",
         "cancelled_at",
+        "cancelled_by",
+        "cancellation_reason",
+        "customer_notes",
         "created_at",
         "updated_at",
     )
@@ -222,9 +228,22 @@ class RetailFulfillmentGroupAdmin(admin.ModelAdmin):
         "title",
         "tracking_number",
     )
-    autocomplete_fields = (
+    autocomplete_fields = ()
+    readonly_fields = (
         "order",
+        "group_type",
+        "title",
+        "status",
         "store_location",
+        "carrier_name",
+        "tracking_number",
+        "metadata",
+        "processing_started_at",
+        "ready_at",
+        "shipped_at",
+        "completed_at",
+        "created_at",
+        "updated_at",
     )
 
 

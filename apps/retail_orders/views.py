@@ -4,6 +4,7 @@ from decimal import Decimal
 from django.contrib.auth.decorators import login_required
 from django.core.paginator import EmptyPage, Paginator
 from django.db import transaction
+from django.db.models import Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -21,8 +22,14 @@ from .forms import (
     RetailCheckoutForm,
     RetailOrderCancellationForm,
     RetailOrderListForm,
+    StaffCustomerFrameReceivedForm,
+    StaffOrderNoteForm,
+    StaffPayAtStorePaymentForm,
+    StaffRetailOrderListForm,
+    StaffShipmentForm,
 )
 from .models import (
+    RetailFulfillmentGroup,
     RetailOrder,
     RetailPaymentAttempt,
     RetailPaymentWebhookEvent,
@@ -40,6 +47,15 @@ from .services import (
     fail_online_payment,
     prepare_razorpay_payment,
     preview_retail_checkout,
+    RetailOrderOperationError,
+    mark_order_delivered,
+    mark_order_packed,
+    mark_order_ready_for_pickup,
+    mark_order_shipped,
+    mark_pay_at_store_paid,
+    record_customer_frame_received,
+    start_order_processing,
+    start_order_production,
 )
 
 
@@ -1155,3 +1171,640 @@ def razorpay_webhook(request):
             "status": event.status,
         }
     )
+
+
+def _staff_order_access_error(request):
+    user = request.user
+
+    if not user.is_active or not user.is_staff:
+        return _error_response(
+            code="staff_access_required",
+            message="An active staff account is required.",
+            status=403,
+        )
+
+    if (
+        not user.is_superuser
+        and not user.has_perm(
+            "retail_orders.change_retailorder"
+        )
+    ):
+        return _error_response(
+            code="order_permission_required",
+            message="Order Manager permission is required.",
+            status=403,
+        )
+
+    return None
+
+
+def _operation_error_response(exc):
+    permission_codes = {
+        "staff_access_required",
+        "order_permission_required",
+    }
+    conflict_codes = {
+        "invalid_status_transition",
+        "managed_status_required",
+        "production_not_required",
+        "customer_frame_not_received",
+        "packing_not_applicable",
+        "pickup_not_applicable",
+        "shipping_not_applicable",
+        "carrier_required",
+        "tracking_number_required",
+        "pay_at_store_payment_required",
+        "not_pay_at_store",
+        "order_cancelled",
+        "payment_attempt_missing",
+        "invalid_fulfillment_group",
+        "frame_receipt_not_allowed",
+    }
+
+    if exc.code in permission_codes:
+        status = 403
+    elif exc.code in conflict_codes:
+        status = 409
+    else:
+        status = 400
+
+    return _error_response(
+        code=exc.code,
+        message=str(exc),
+        status=status,
+        details=exc.details,
+    )
+
+
+def _serialize_staff_actor(user):
+    if user is None:
+        return None
+
+    return {
+        "id": user.pk,
+        "username": user.username,
+        "email": user.email or None,
+    }
+
+
+def _serialize_order_status_history(history):
+    return {
+        "id": history.pk,
+        "previous_status": history.previous_status,
+        "previous_status_label": (
+            history.get_previous_status_display()
+        ),
+        "new_status": history.new_status,
+        "new_status_label": (
+            history.get_new_status_display()
+        ),
+        "changed_by": _serialize_staff_actor(
+            history.changed_by
+        ),
+        "note": history.note or None,
+        "metadata": history.metadata,
+        "created_at": history.created_at.isoformat(),
+    }
+
+
+def _serialize_fulfillment_status_history(history):
+    return {
+        "id": history.pk,
+        "fulfillment_group_id": (
+            history.fulfillment_group_id
+        ),
+        "previous_status": history.previous_status,
+        "previous_status_label": (
+            history.get_previous_status_display()
+        ),
+        "new_status": history.new_status,
+        "new_status_label": (
+            history.get_new_status_display()
+        ),
+        "changed_by": _serialize_staff_actor(
+            history.changed_by
+        ),
+        "note": history.note or None,
+        "metadata": history.metadata,
+        "created_at": history.created_at.isoformat(),
+    }
+
+
+def _staff_allowed_actions(order):
+    actions = []
+    status = order.status
+
+    if status == RetailOrder.Status.CONFIRMED:
+        actions.append("start_processing")
+
+    elif status == RetailOrder.Status.PROCESSING:
+        has_custom_items = order.items.filter(
+            is_custom=True
+        ).exists()
+
+        inbound_pending = (
+            order.fulfillment_groups
+            .filter(
+                group_type=(
+                    RetailFulfillmentGroup
+                    .GroupType.CUSTOMER_FRAME_INBOUND
+                ),
+            )
+            .exclude(
+                status=(
+                    RetailFulfillmentGroup.Status.COMPLETED
+                )
+            )
+            .exists()
+        )
+
+        if has_custom_items and not inbound_pending:
+            actions.append("start_production")
+
+        if not has_custom_items:
+            if (
+                order.fulfillment_method
+                == RetailOrder.FulfillmentMethod.DELIVERY
+            ):
+                actions.append("mark_packed")
+            else:
+                actions.append("mark_ready_for_pickup")
+
+    elif status == RetailOrder.Status.PRODUCTION:
+        if (
+            order.fulfillment_method
+            == RetailOrder.FulfillmentMethod.DELIVERY
+        ):
+            actions.append("mark_packed")
+        else:
+            actions.append("mark_ready_for_pickup")
+
+    elif status == RetailOrder.Status.PACKED:
+        actions.append("mark_shipped")
+
+    elif status == RetailOrder.Status.SHIPPED:
+        actions.append("mark_delivered")
+
+    elif status == RetailOrder.Status.READY_FOR_PICKUP:
+        if (
+            order.payment_method
+            == RetailOrder.PaymentMethod.PAY_AT_STORE
+            and order.payment_status
+            != RetailOrder.PaymentStatus.PAID
+        ):
+            actions.append("record_store_payment")
+        else:
+            actions.append("mark_delivered")
+
+    pending_frame_groups = list(
+        order.fulfillment_groups
+        .filter(
+            group_type=(
+                RetailFulfillmentGroup
+                .GroupType.CUSTOMER_FRAME_INBOUND
+            ),
+        )
+        .exclude(
+            status=RetailFulfillmentGroup.Status.COMPLETED
+        )
+        .values_list("pk", flat=True)
+    )
+
+    return {
+        "order_actions": actions,
+        "customer_frame_receipt_group_ids": (
+            pending_frame_groups
+        ),
+    }
+
+
+def _load_staff_order_detail_queryset():
+    return (
+        _load_order_detail_queryset()
+        .prefetch_related(
+            "status_history__changed_by",
+            (
+                "fulfillment_groups__"
+                "status_history__changed_by"
+            ),
+        )
+    )
+
+
+def _serialize_staff_order_detail(order):
+    data = _serialize_order_detail(order)
+
+    fulfillment_histories = []
+
+    for group in order.fulfillment_groups.all():
+        fulfillment_histories.extend(
+            _serialize_fulfillment_status_history(history)
+            for history in group.status_history.all()
+        )
+
+    fulfillment_histories.sort(
+        key=lambda item: (item["created_at"], item["id"])
+    )
+
+    data["staff_operations"] = _staff_allowed_actions(order)
+    data["status_history"] = [
+        _serialize_order_status_history(history)
+        for history in order.status_history.all()
+    ]
+    data["fulfillment_status_history"] = (
+        fulfillment_histories
+    )
+
+    return data
+
+
+def _staff_order(order_number):
+    return get_object_or_404(
+        _load_staff_order_detail_queryset(),
+        order_number=order_number,
+    )
+
+
+def _validated_staff_form(form):
+    if form.is_valid():
+        return None
+
+    return _error_response(
+        code="invalid_request",
+        message="Correct the staff order request.",
+        status=400,
+        fields=_form_errors(form),
+    )
+
+
+def _staff_order_response(order):
+    order = get_object_or_404(
+        _load_staff_order_detail_queryset(),
+        pk=order.pk,
+    )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "order": _serialize_staff_order_detail(order),
+        }
+    )
+
+
+@login_required
+@require_GET
+def staff_order_list(request):
+    access_error = _staff_order_access_error(request)
+
+    if access_error:
+        return access_error
+
+    form = StaffRetailOrderListForm(request.GET)
+
+    if not form.is_valid():
+        return _error_response(
+            code="invalid_request",
+            message="Correct the staff order-list request.",
+            status=400,
+            fields=_form_errors(form),
+        )
+
+    queryset = (
+        RetailOrder.objects
+        .select_related(
+            "user",
+            "store_location",
+        )
+        .order_by("-created_at")
+    )
+
+    status = form.cleaned_data.get("status")
+    payment_status = form.cleaned_data.get(
+        "payment_status"
+    )
+    fulfillment_method = form.cleaned_data.get(
+        "fulfillment_method"
+    )
+    search = form.cleaned_data.get("q")
+
+    if status:
+        queryset = queryset.filter(status=status)
+
+    if payment_status:
+        queryset = queryset.filter(
+            payment_status=payment_status
+        )
+
+    if fulfillment_method:
+        queryset = queryset.filter(
+            fulfillment_method=fulfillment_method
+        )
+
+    if search:
+        queryset = queryset.filter(
+            Q(order_number__icontains=search)
+            | Q(user__username__icontains=search)
+            | Q(user__email__icontains=search)
+            | Q(user__phone_number__icontains=search)
+        )
+
+    page_number = form.cleaned_data.get("page") or 1
+    page_size = form.cleaned_data.get("page_size") or 25
+    paginator = Paginator(queryset, page_size)
+
+    try:
+        page = paginator.page(page_number)
+    except EmptyPage:
+        return _error_response(
+            code="page_not_found",
+            message="The requested staff order page does not exist.",
+            status=404,
+        )
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "pagination": {
+                "page": page.number,
+                "page_size": page_size,
+                "total_pages": paginator.num_pages,
+                "total_items": paginator.count,
+                "has_next": page.has_next(),
+                "has_previous": page.has_previous(),
+            },
+            "orders": [
+                {
+                    **_serialize_order_summary(order),
+                    "customer": {
+                        "id": order.user_id,
+                        "username": order.user.username,
+                        "email": order.user.email or None,
+                        "phone_number": (
+                            order.user.phone_number or None
+                        ),
+                    },
+                }
+                for order in page.object_list
+            ],
+        }
+    )
+
+
+@login_required
+@require_GET
+def staff_order_detail(request, order_number):
+    access_error = _staff_order_access_error(request)
+
+    if access_error:
+        return access_error
+
+    order = _staff_order(order_number)
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "order": _serialize_staff_order_detail(order),
+        }
+    )
+
+
+@login_required
+@require_POST
+def staff_start_processing(request, order_number):
+    access_error = _staff_order_access_error(request)
+
+    if access_error:
+        return access_error
+
+    form = StaffOrderNoteForm(request.POST)
+    form_error = _validated_staff_form(form)
+
+    if form_error:
+        return form_error
+
+    order = _staff_order(order_number)
+
+    try:
+        order = start_order_processing(
+            order=order,
+            actor=request.user,
+            note=form.cleaned_data.get("note") or "",
+        )
+    except RetailOrderOperationError as exc:
+        return _operation_error_response(exc)
+
+    return _staff_order_response(order)
+
+
+@login_required
+@require_POST
+def staff_start_production(request, order_number):
+    access_error = _staff_order_access_error(request)
+
+    if access_error:
+        return access_error
+
+    form = StaffOrderNoteForm(request.POST)
+    form_error = _validated_staff_form(form)
+
+    if form_error:
+        return form_error
+
+    order = _staff_order(order_number)
+
+    try:
+        order = start_order_production(
+            order=order,
+            actor=request.user,
+            note=form.cleaned_data.get("note") or "",
+        )
+    except RetailOrderOperationError as exc:
+        return _operation_error_response(exc)
+
+    return _staff_order_response(order)
+
+
+@login_required
+@require_POST
+def staff_mark_packed(request, order_number):
+    access_error = _staff_order_access_error(request)
+
+    if access_error:
+        return access_error
+
+    form = StaffOrderNoteForm(request.POST)
+    form_error = _validated_staff_form(form)
+
+    if form_error:
+        return form_error
+
+    order = _staff_order(order_number)
+
+    try:
+        order = mark_order_packed(
+            order=order,
+            actor=request.user,
+            note=form.cleaned_data.get("note") or "",
+        )
+    except RetailOrderOperationError as exc:
+        return _operation_error_response(exc)
+
+    return _staff_order_response(order)
+
+
+@login_required
+@require_POST
+def staff_mark_ready_for_pickup(request, order_number):
+    access_error = _staff_order_access_error(request)
+
+    if access_error:
+        return access_error
+
+    form = StaffOrderNoteForm(request.POST)
+    form_error = _validated_staff_form(form)
+
+    if form_error:
+        return form_error
+
+    order = _staff_order(order_number)
+
+    try:
+        order = mark_order_ready_for_pickup(
+            order=order,
+            actor=request.user,
+            note=form.cleaned_data.get("note") or "",
+        )
+    except RetailOrderOperationError as exc:
+        return _operation_error_response(exc)
+
+    return _staff_order_response(order)
+
+
+@login_required
+@require_POST
+def staff_mark_shipped(request, order_number):
+    access_error = _staff_order_access_error(request)
+
+    if access_error:
+        return access_error
+
+    form = StaffShipmentForm(request.POST)
+    form_error = _validated_staff_form(form)
+
+    if form_error:
+        return form_error
+
+    order = _staff_order(order_number)
+
+    try:
+        order = mark_order_shipped(
+            order=order,
+            actor=request.user,
+            carrier_name=form.cleaned_data["carrier_name"],
+            tracking_number=(
+                form.cleaned_data["tracking_number"]
+            ),
+            note=form.cleaned_data.get("note") or "",
+        )
+    except RetailOrderOperationError as exc:
+        return _operation_error_response(exc)
+
+    return _staff_order_response(order)
+
+
+@login_required
+@require_POST
+def staff_record_store_payment(request, order_number):
+    access_error = _staff_order_access_error(request)
+
+    if access_error:
+        return access_error
+
+    form = StaffPayAtStorePaymentForm(request.POST)
+    form_error = _validated_staff_form(form)
+
+    if form_error:
+        return form_error
+
+    order = _staff_order(order_number)
+
+    try:
+        order = mark_pay_at_store_paid(
+            order=order,
+            actor=request.user,
+            note=form.cleaned_data.get("note") or "",
+            receipt_reference=(
+                form.cleaned_data.get(
+                    "receipt_reference"
+                )
+                or ""
+            ),
+        )
+    except RetailOrderOperationError as exc:
+        return _operation_error_response(exc)
+
+    return _staff_order_response(order)
+
+
+@login_required
+@require_POST
+def staff_mark_delivered(request, order_number):
+    access_error = _staff_order_access_error(request)
+
+    if access_error:
+        return access_error
+
+    form = StaffOrderNoteForm(request.POST)
+    form_error = _validated_staff_form(form)
+
+    if form_error:
+        return form_error
+
+    order = _staff_order(order_number)
+
+    try:
+        order = mark_order_delivered(
+            order=order,
+            actor=request.user,
+            note=form.cleaned_data.get("note") or "",
+        )
+    except RetailOrderOperationError as exc:
+        return _operation_error_response(exc)
+
+    return _staff_order_response(order)
+
+
+@login_required
+@require_POST
+def staff_record_customer_frame_received(
+    request,
+    group_id,
+):
+    access_error = _staff_order_access_error(request)
+
+    if access_error:
+        return access_error
+
+    form = StaffCustomerFrameReceivedForm(request.POST)
+    form_error = _validated_staff_form(form)
+
+    if form_error:
+        return form_error
+
+    group = get_object_or_404(
+        RetailFulfillmentGroup.objects.select_related(
+            "order"
+        ),
+        pk=group_id,
+    )
+
+    try:
+        group = record_customer_frame_received(
+            fulfillment_group=group,
+            actor=request.user,
+            note=form.cleaned_data.get("note") or "",
+        )
+    except RetailOrderOperationError as exc:
+        return _operation_error_response(exc)
+
+    return _staff_order_response(group.order)

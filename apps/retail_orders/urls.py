@@ -41,4 +41,55 @@ urlpatterns = [
         views.cancel_order,
         name="order_cancel",
     ),
+    path(
+        "staff/orders/",
+        views.staff_order_list,
+        name="staff_order_list",
+    ),
+    path(
+        "staff/orders/<str:order_number>/",
+        views.staff_order_detail,
+        name="staff_order_detail",
+    ),
+    path(
+        "staff/orders/<str:order_number>/start-processing/",
+        views.staff_start_processing,
+        name="staff_start_processing",
+    ),
+    path(
+        "staff/orders/<str:order_number>/start-production/",
+        views.staff_start_production,
+        name="staff_start_production",
+    ),
+    path(
+        "staff/orders/<str:order_number>/mark-packed/",
+        views.staff_mark_packed,
+        name="staff_mark_packed",
+    ),
+    path(
+        "staff/orders/<str:order_number>/ready-for-pickup/",
+        views.staff_mark_ready_for_pickup,
+        name="staff_ready_for_pickup",
+    ),
+    path(
+        "staff/orders/<str:order_number>/mark-shipped/",
+        views.staff_mark_shipped,
+        name="staff_mark_shipped",
+    ),
+    path(
+        "staff/orders/<str:order_number>/record-store-payment/",
+        views.staff_record_store_payment,
+        name="staff_record_store_payment",
+    ),
+    path(
+        "staff/orders/<str:order_number>/mark-delivered/",
+        views.staff_mark_delivered,
+        name="staff_mark_delivered",
+    ),
+    path(
+        "staff/fulfillment-groups/<int:group_id>/"
+        "customer-frame-received/",
+        views.staff_record_customer_frame_received,
+        name="staff_customer_frame_received",
+    ),
 ]
