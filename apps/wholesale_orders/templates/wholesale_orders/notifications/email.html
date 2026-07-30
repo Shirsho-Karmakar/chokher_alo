@@ -1,0 +1,28 @@
+<!doctype html>
+<html>
+<body>
+  <h2>{{ event.get_event_type_display }}</h2>
+  <p>
+    Order <strong>{{ order.order_number }}</strong>
+  </p>
+  <p>Status: {{ order.get_status_display }}</p>
+  <p>Payment: {{ order.get_payment_status_display }}</p>
+  <p>Total: ₹{{ order.grand_total_including_gst }}</p>
+
+  {% if payload.carrier_name %}
+    <p>Carrier: {{ payload.carrier_name }}</p>
+  {% endif %}
+
+  {% if payload.tracking_number %}
+    <p>Tracking: {{ payload.tracking_number }}</p>
+  {% endif %}
+
+  {% if payload.reason %}
+    <p>Reason: {{ payload.reason }}</p>
+  {% endif %}
+
+  {% if payload.invoice_number %}
+    <p>Invoice: {{ payload.invoice_number }}</p>
+  {% endif %}
+</body>
+</html>

@@ -1,0 +1,1 @@
+Chokher Alo: {{ event.get_event_type_display }} for {{ order.order_number }}. Status: {{ order.get_status_display }}.{% if payload.tracking_number %} Tracking: {{ payload.tracking_number }}.{% endif %}

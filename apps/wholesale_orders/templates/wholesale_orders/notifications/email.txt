@@ -1,0 +1,22 @@
+{{ order.business_snapshot.business_name|default:"Wholesale customer" }}
+
+Order: {{ order.order_number }}
+Update: {{ event.get_event_type_display }}
+Status: {{ order.get_status_display }}
+Payment: {{ order.get_payment_status_display }}
+Total: ₹{{ order.grand_total_including_gst }}
+
+{% if payload.carrier_name %}
+Carrier: {{ payload.carrier_name }}
+{% endif %}
+{% if payload.tracking_number %}
+Tracking: {{ payload.tracking_number }}
+{% endif %}
+{% if payload.reason %}
+Reason: {{ payload.reason }}
+{% endif %}
+{% if payload.invoice_number %}
+Invoice: {{ payload.invoice_number }}
+{% endif %}
+
+Chokher Alo

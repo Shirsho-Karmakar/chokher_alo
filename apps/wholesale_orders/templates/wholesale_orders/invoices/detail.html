@@ -1,0 +1,172 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Invoice {{ invoice.invoice_number }}</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      margin: 32px;
+      color: #111;
+    }
+
+    header,
+    .addresses,
+    .totals {
+      display: flex;
+      justify-content: space-between;
+      gap: 32px;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 28px;
+    }
+
+    th,
+    td {
+      border: 1px solid #bbb;
+      padding: 8px;
+      text-align: left;
+    }
+
+    .number {
+      text-align: right;
+    }
+
+    .totals {
+      margin-top: 24px;
+      justify-content: flex-end;
+    }
+
+    @media print {
+      body {
+        margin: 0;
+      }
+
+      .print-button {
+        display: none;
+      }
+    }
+  </style>
+</head>
+<body>
+  <button class="print-button" onclick="window.print()">
+    Print invoice
+  </button>
+
+  <header>
+    <div>
+      <h1>Tax Invoice</h1>
+      <p>Invoice: {{ invoice.invoice_number }}</p>
+      <p>Order: {{ invoice.order.order_number }}</p>
+      <p>Issued: {{ invoice.issued_at }}</p>
+    </div>
+
+    <div>
+      <strong>{{ invoice.seller_snapshot.name }}</strong>
+      {% if invoice.seller_snapshot.gstin %}
+        <p>GSTIN: {{ invoice.seller_snapshot.gstin }}</p>
+      {% endif %}
+      {% if invoice.seller_snapshot.address %}
+        <p>{{ invoice.seller_snapshot.address }}</p>
+      {% endif %}
+      {% if invoice.seller_snapshot.email %}
+        <p>{{ invoice.seller_snapshot.email }}</p>
+      {% endif %}
+    </div>
+  </header>
+
+  <section class="addresses">
+    <div>
+      <h3>Bill to</h3>
+      <strong>
+        {{ invoice.billing_address_snapshot.business_name }}
+      </strong>
+      <p>
+        {{ invoice.billing_address_snapshot.recipient_name }}
+      </p>
+      <p>
+        {{ invoice.billing_address_snapshot.address_line_1 }}
+      </p>
+      {% if invoice.billing_address_snapshot.address_line_2 %}
+        <p>
+          {{ invoice.billing_address_snapshot.address_line_2 }}
+        </p>
+      {% endif %}
+      <p>
+        {{ invoice.billing_address_snapshot.city }},
+        {{ invoice.billing_address_snapshot.state }}
+        {{ invoice.billing_address_snapshot.postal_code }}
+      </p>
+      {% if invoice.billing_address_snapshot.gstin %}
+        <p>
+          GSTIN:
+          {{ invoice.billing_address_snapshot.gstin }}
+        </p>
+      {% endif %}
+    </div>
+  </section>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th>Eye</th>
+        <th>Boxes</th>
+        <th>GST</th>
+        <th class="number">Box price</th>
+        <th class="number">Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in invoice.items_snapshot %}
+        <tr>
+          <td>
+            {{ item.name }}
+            <br>
+            {{ item.catalogue_code }}
+            / {{ item.sku }}
+          </td>
+          <td>{{ item.eye }}</td>
+          <td>{{ item.boxes }}</td>
+          <td>
+            {% if item.gst_rate %}
+              {{ item.gst_rate }}%
+            {% else %}
+              —
+            {% endif %}
+          </td>
+          <td class="number">
+            ₹{{ item.applied_box_price_including_gst }}
+          </td>
+          <td class="number">
+            ₹{{ item.subtotal_including_gst }}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <section class="totals">
+    <div>
+      <p>
+        Subtotal:
+        ₹{{ invoice.subtotal_including_gst }}
+      </p>
+      <p>
+        Delivery:
+        ₹{{ invoice.delivery_fee_including_gst }}
+      </p>
+      <p>
+        <strong>
+          Grand total:
+          ₹{{ invoice.grand_total_including_gst }}
+        </strong>
+      </p>
+      <small>All displayed prices include GST.</small>
+    </div>
+  </section>
+</body>
+</html>

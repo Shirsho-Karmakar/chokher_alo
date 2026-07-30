@@ -458,6 +458,7 @@ def _variant_snapshot(variant):
         ),
         "physical_variant_id": physical_variant.pk,
         "physical_sku": physical_variant.physical_sku,
+        "gst_rate": str(lens.offer.gst_rate),
     }
 
 

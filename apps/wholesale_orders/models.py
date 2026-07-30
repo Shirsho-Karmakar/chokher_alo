@@ -3,6 +3,7 @@ from decimal import Decimal
 
 from django.core.validators import MinValueValidator
 from django.db import models
+from django.utils import timezone
 
 from apps.catalog.models import ProductVariant
 from apps.prescriptions.models import (
@@ -35,6 +36,10 @@ class WholesaleOrder(models.Model):
             "payment_pending",
             "Payment pending",
         )
+        PAYMENT_FAILED = (
+            "payment_failed",
+            "Payment failed",
+        )
         CONFIRMED = "confirmed", "Confirmed"
         PROCESSING = "processing", "Processing"
         SHIPPED = "shipped", "Shipped"
@@ -46,6 +51,10 @@ class WholesaleOrder(models.Model):
         PAID = "paid", "Paid"
         FAILED = "failed", "Failed"
         CANCELLED = "cancelled", "Cancelled"
+        REFUND_PENDING = (
+            "refund_pending",
+            "Refund pending",
+        )
         REFUNDED = "refunded", "Refunded"
 
     class FulfillmentStatus(models.TextChoices):
@@ -327,6 +336,10 @@ class WholesalePaymentAttempt(models.Model):
         decimal_places=2,
         validators=[MinValueValidator(Decimal("0.00"))],
     )
+    currency = models.CharField(
+        max_length=3,
+        default="INR",
+    )
 
     idempotency_key = models.CharField(
         max_length=100,
@@ -347,6 +360,9 @@ class WholesalePaymentAttempt(models.Model):
         max_length=255,
         blank=True,
     )
+    signature_verified = models.BooleanField(
+        default=False,
+    )
     provider_payload = models.JSONField(
         default=dict,
         blank=True,
@@ -358,6 +374,7 @@ class WholesalePaymentAttempt(models.Model):
         db_index=True,
     )
     paid_at = models.DateTimeField(null=True, blank=True)
+    failed_at = models.DateTimeField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -474,6 +491,10 @@ class WholesaleStockReservation(models.Model):
         default=Status.ACTIVE,
         db_index=True,
     )
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+    )
 
     expires_at = models.DateTimeField(db_index=True)
     consumed_at = models.DateTimeField(null=True, blank=True)
@@ -496,3 +517,231 @@ class WholesaleStockReservation(models.Model):
             f"{self.order.order_number} — "
             f"{self.wholesale_variant.sku}"
         )
+
+
+class WholesalePaymentWebhookEvent(models.Model):
+    class Status(models.TextChoices):
+        RECEIVED = "received", "Received"
+        PROCESSED = "processed", "Processed"
+        IGNORED = "ignored", "Ignored"
+        FAILED = "failed", "Failed"
+
+    provider = models.CharField(
+        max_length=30,
+        default="razorpay",
+        editable=False,
+    )
+    event_id = models.CharField(
+        max_length=150,
+        unique=True,
+    )
+    event_type = models.CharField(
+        max_length=100,
+        db_index=True,
+    )
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.RECEIVED,
+        db_index=True,
+    )
+
+    order = models.ForeignKey(
+        WholesaleOrder,
+        on_delete=models.SET_NULL,
+        related_name="payment_webhook_events",
+        null=True,
+        blank=True,
+    )
+    payment_attempt = models.ForeignKey(
+        WholesalePaymentAttempt,
+        on_delete=models.SET_NULL,
+        related_name="webhook_events",
+        null=True,
+        blank=True,
+    )
+
+    signature = models.TextField(blank=True)
+    payload = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+    error_message = models.TextField(blank=True)
+    processed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["event_type", "-created_at"],
+                name="wh_webhook_type_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.event_type} — {self.event_id}"
+
+
+def generate_wholesale_invoice_number():
+    random_part = "".join(
+        secrets.choice(ORDER_NUMBER_ALPHABET)
+        for _ in range(12)
+    )
+    return f"CHA-WI-{random_part}"
+
+
+class WholesaleOrderNotificationEvent(models.Model):
+    class EventType(models.TextChoices):
+        PAYMENT_CONFIRMED = (
+            "payment_confirmed",
+            "Payment confirmed",
+        )
+        PAYMENT_FAILED = (
+            "payment_failed",
+            "Payment failed",
+        )
+        PROCESSING = "processing", "Processing"
+        SHIPPED = "shipped", "Shipped"
+        DELIVERED = "delivered", "Delivered"
+        CANCELLED = "cancelled", "Cancelled"
+        REFUNDED = "refunded", "Refunded"
+
+    class Channel(models.TextChoices):
+        EMAIL = "email", "Email"
+        SMS = "sms", "SMS"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    order = models.ForeignKey(
+        WholesaleOrder,
+        on_delete=models.CASCADE,
+        related_name="notification_events",
+    )
+    event_type = models.CharField(
+        max_length=30,
+        choices=EventType.choices,
+        db_index=True,
+    )
+    channel = models.CharField(
+        max_length=10,
+        choices=Channel.choices,
+    )
+    recipient = models.CharField(max_length=255)
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+    attempt_count = models.PositiveIntegerField(default=0)
+    last_error = models.TextField(blank=True)
+    payload = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    "order",
+                    "event_type",
+                    "channel",
+                ],
+                name="uniq_wh_order_notif",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["status", "created_at"],
+                name="wh_notif_status_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.order.order_number} — "
+            f"{self.get_event_type_display()} — "
+            f"{self.get_channel_display()}"
+        )
+
+
+class WholesaleInvoice(models.Model):
+    class Status(models.TextChoices):
+        ISSUED = "issued", "Issued"
+        VOID = "void", "Void"
+
+    invoice_number = models.CharField(
+        max_length=30,
+        unique=True,
+        editable=False,
+        default=generate_wholesale_invoice_number,
+    )
+    order = models.OneToOneField(
+        WholesaleOrder,
+        on_delete=models.PROTECT,
+        related_name="invoice",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ISSUED,
+        db_index=True,
+    )
+    currency = models.CharField(
+        max_length=3,
+        default="INR",
+    )
+
+    seller_snapshot = models.JSONField(default=dict)
+    business_snapshot = models.JSONField(default=dict)
+    billing_address_snapshot = models.JSONField(default=dict)
+    items_snapshot = models.JSONField(default=list)
+
+    subtotal_including_gst = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+    )
+    delivery_fee_including_gst = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+    )
+    grand_total_including_gst = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+    )
+
+    issued_at = models.DateTimeField(default=timezone.now)
+    voided_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-issued_at", "-pk"]
+        indexes = [
+            models.Index(
+                fields=["status", "issued_at"],
+                name="wh_invoice_status_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return self.invoice_number

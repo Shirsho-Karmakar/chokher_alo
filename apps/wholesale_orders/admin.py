@@ -2,10 +2,13 @@ from django.contrib import admin
 
 from .models import (
     WholesaleFulfillment,
+    WholesaleInvoice,
     WholesaleOrder,
+    WholesaleOrderNotificationEvent,
     WholesaleOrderAddressSnapshot,
     WholesaleOrderItem,
     WholesalePaymentAttempt,
+    WholesalePaymentWebhookEvent,
     WholesaleStockReservation,
 )
 
@@ -38,10 +41,13 @@ class WholesalePaymentAttemptInline(admin.TabularInline):
         "method",
         "status",
         "amount_including_gst",
+        "currency",
         "provider_order_id",
         "provider_payment_id",
+        "signature_verified",
         "expires_at",
         "paid_at",
+        "failed_at",
         "created_at",
         "updated_at",
     )
@@ -60,6 +66,7 @@ class WholesaleStockReservationInline(admin.TabularInline):
         "boxes_reserved",
         "physical_units_reserved",
         "status",
+        "metadata",
         "expires_at",
         "consumed_at",
         "released_at",
@@ -234,13 +241,16 @@ class WholesalePaymentAttemptAdmin(admin.ModelAdmin):
         "method",
         "status",
         "amount_including_gst",
+        "currency",
         "idempotency_key",
         "provider_order_id",
         "provider_payment_id",
         "provider_signature",
+        "signature_verified",
         "provider_payload",
         "expires_at",
         "paid_at",
+        "failed_at",
         "created_at",
         "updated_at",
     )
@@ -308,6 +318,7 @@ class WholesaleStockReservationAdmin(admin.ModelAdmin):
         "boxes_reserved",
         "physical_units_reserved",
         "status",
+        "metadata",
         "expires_at",
         "consumed_at",
         "released_at",
@@ -316,4 +327,147 @@ class WholesaleStockReservationAdmin(admin.ModelAdmin):
     )
 
     def has_add_permission(self, request):
+        return False
+
+@admin.register(WholesalePaymentWebhookEvent)
+class WholesalePaymentWebhookEventAdmin(
+    admin.ModelAdmin
+):
+    list_display = (
+        "event_id",
+        "event_type",
+        "status",
+        "order",
+        "created_at",
+        "processed_at",
+    )
+    list_filter = (
+        "status",
+        "event_type",
+        "created_at",
+    )
+    search_fields = (
+        "event_id",
+        "event_type",
+        "order__order_number",
+        "payment_attempt__provider_order_id",
+        "payment_attempt__provider_payment_id",
+    )
+    readonly_fields = (
+        "provider",
+        "event_id",
+        "event_type",
+        "status",
+        "order",
+        "payment_attempt",
+        "signature",
+        "payload",
+        "error_message",
+        "processed_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(
+        self,
+        request,
+        obj=None,
+    ):
+        return False
+
+    def has_delete_permission(
+        self,
+        request,
+        obj=None,
+    ):
+        return request.user.is_superuser
+
+
+@admin.register(WholesaleOrderNotificationEvent)
+class WholesaleOrderNotificationEventAdmin(
+    admin.ModelAdmin
+):
+    list_display = (
+        "order",
+        "event_type",
+        "channel",
+        "recipient",
+        "status",
+        "attempt_count",
+        "created_at",
+    )
+    list_filter = (
+        "event_type",
+        "channel",
+        "status",
+        "created_at",
+    )
+    search_fields = (
+        "order__order_number",
+        "recipient",
+    )
+    readonly_fields = (
+        "order",
+        "event_type",
+        "channel",
+        "recipient",
+        "status",
+        "attempt_count",
+        "last_error",
+        "payload",
+        "sent_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+
+@admin.register(WholesaleInvoice)
+class WholesaleInvoiceAdmin(admin.ModelAdmin):
+    list_display = (
+        "invoice_number",
+        "order",
+        "status",
+        "grand_total_including_gst",
+        "issued_at",
+    )
+    list_filter = (
+        "status",
+        "issued_at",
+    )
+    search_fields = (
+        "invoice_number",
+        "order__order_number",
+        "business_snapshot__business_name",
+    )
+    readonly_fields = (
+        "invoice_number",
+        "order",
+        "status",
+        "currency",
+        "seller_snapshot",
+        "business_snapshot",
+        "billing_address_snapshot",
+        "items_snapshot",
+        "subtotal_including_gst",
+        "delivery_fee_including_gst",
+        "grand_total_including_gst",
+        "issued_at",
+        "voided_at",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
         return False

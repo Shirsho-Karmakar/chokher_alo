@@ -146,6 +146,18 @@ STAFF_GROUP_PERMISSIONS = {
             "wholesale_orders",
             "change_wholesalestockreservation",
         ),
+        (
+            "wholesale_orders",
+            "view_wholesalepaymentwebhookevent",
+        ),
+        (
+            "wholesale_orders",
+            "view_wholesaleordernotificationevent",
+        ),
+        (
+            "wholesale_orders",
+            "view_wholesaleinvoice",
+        ),
         ("retail_orders", "view_storelocation"),
         ("retail_orders", "add_storelocation"),
         ("retail_orders", "change_storelocation"),
