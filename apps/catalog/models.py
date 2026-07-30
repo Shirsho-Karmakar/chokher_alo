@@ -1,5 +1,6 @@
 from decimal import Decimal
 
+from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import (
     MaxValueValidator,
@@ -502,6 +503,13 @@ class ProductOffer(models.Model):
     )
 
     requires_prescription = models.BooleanField(default=False)
+    supports_powered_lenses = models.BooleanField(
+        default=False,
+        help_text=(
+            "Allow the customer to combine this eyewear offer "
+            "with prescription-powered lenses."
+        ),
+    )
     is_active = models.BooleanField(default=True)
 
     created_at = models.DateTimeField(auto_now_add=True)
@@ -729,3 +737,121 @@ class ProductImage(models.Model):
 
     def __str__(self):
         return f"Image for {self.offer or self.variant}"
+
+
+class ProductStockAlert(models.Model):
+    """
+    A customer's request to be notified when an unavailable retail offer
+    becomes available.
+
+    Actual email and SMS delivery will be added in the notification stage.
+    """
+
+    class Channel(models.TextChoices):
+        SMS = "sms", "SMS"
+        EMAIL = "email", "Email"
+
+    class Status(models.TextChoices):
+        ACTIVE = "active", "Active"
+        NOTIFIED = "notified", "Notified"
+        CANCELLED = "cancelled", "Cancelled"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="product_stock_alerts",
+    )
+    offer = models.ForeignKey(
+        ProductOffer,
+        on_delete=models.PROTECT,
+        related_name="stock_alerts",
+    )
+    channel = models.CharField(
+        max_length=10,
+        choices=Channel.choices,
+    )
+    destination = models.CharField(
+        max_length=254,
+        editable=False,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.ACTIVE,
+        db_index=True,
+    )
+
+    notified_at = models.DateTimeField(null=True, blank=True)
+    cancelled_at = models.DateTimeField(null=True, blank=True)
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        verbose_name = "Product stock alert"
+        verbose_name_plural = "Product stock alerts"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "offer", "channel"],
+                condition=models.Q(status="active"),
+                name="uniq_active_product_stock_alert",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        if self.status != self.Status.ACTIVE:
+            return
+
+        errors = {}
+
+        if not self.user_id or not self.user.is_active:
+            errors["user"] = "An active customer account is required."
+
+        if self.offer_id:
+            offer_status = self.offer.effective_status
+
+            if offer_status not in {
+                ProductOffer.Status.SOLD_OUT,
+                ProductOffer.Status.COMING_SOON,
+            }:
+                errors["offer"] = (
+                    "Stock alerts are only available for sold-out "
+                    "or coming-soon products."
+                )
+
+        if self.channel == self.Channel.SMS:
+            if (
+                not self.user.phone_number
+                or not self.user.phone_verified
+            ):
+                errors["channel"] = (
+                    "A verified phone number is required for SMS alerts."
+                )
+            else:
+                self.destination = self.user.phone_number
+
+        elif self.channel == self.Channel.EMAIL:
+            if not self.user.email or not self.user.email_verified:
+                errors["channel"] = (
+                    "A verified email address is required "
+                    "for email alerts."
+                )
+            else:
+                self.destination = self.user.email
+
+        if errors:
+            raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return (
+            f"{self.user} — {self.offer.sku} — "
+            f"{self.get_channel_display()}"
+        )

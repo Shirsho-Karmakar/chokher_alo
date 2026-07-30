@@ -10,6 +10,7 @@ from .models import (
     ProductDesign,
     ProductImage,
     ProductOffer,
+    ProductStockAlert,
     ProductVariant,
 )
 
@@ -167,6 +168,7 @@ class ProductOfferAdmin(admin.ModelAdmin):
         "offer_type",
         "status",
         "requires_prescription",
+        "supports_powered_lenses",
         "is_active",
     )
     search_fields = (
@@ -211,3 +213,44 @@ class ProductImageAdmin(admin.ModelAdmin):
         "offer",
     )
     readonly_fields = ("created_at",)
+
+
+@admin.register(ProductStockAlert)
+class ProductStockAlertAdmin(admin.ModelAdmin):
+    list_display = (
+        "offer",
+        "user",
+        "channel",
+        "destination",
+        "status",
+        "created_at",
+        "notified_at",
+    )
+    list_filter = (
+        "channel",
+        "status",
+        "created_at",
+    )
+    search_fields = (
+        "offer__sku",
+        "offer__variant__design__name",
+        "user__username",
+        "user__email",
+        "user__phone_number",
+        "destination",
+    )
+    autocomplete_fields = (
+        "user",
+        "offer",
+    )
+    readonly_fields = (
+        "destination",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return request.user.is_superuser
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser

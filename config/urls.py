@@ -24,4 +24,8 @@ urlpatterns = [
         "lenses/",
         include("apps.lenses.urls"),
     ),
+    path(
+        "catalogue/",
+        include("apps.catalog.urls"),
+    ),
 ]
