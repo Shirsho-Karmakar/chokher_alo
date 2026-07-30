@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<body>
+  <p>Hello,</p>
+
+  {% if event_type == "payment_confirmed" %}
+    <p>
+      We have confirmed payment for
+      <strong>{{ order.order_number }}</strong>.
+    </p>
+  {% elif event_type == "processing" %}
+    <p>
+      Order <strong>{{ order.order_number }}</strong>
+      is now being processed.
+    </p>
+  {% elif event_type == "shipped" %}
+    <p>
+      Order <strong>{{ order.order_number }}</strong>
+      has been shipped.
+    </p>
+    {% if payload.carrier_name %}
+      <p>Carrier: {{ payload.carrier_name }}</p>
+    {% endif %}
+    {% if payload.tracking_number %}
+      <p>
+        Tracking number:
+        <strong>{{ payload.tracking_number }}</strong>
+      </p>
+    {% endif %}
+  {% elif event_type == "ready_for_pickup" %}
+    <p>
+      Order <strong>{{ order.order_number }}</strong>
+      is ready for pickup.
+    </p>
+    {% if order.store_location %}
+      <p>Pickup store: {{ order.store_location.name }}</p>
+    {% endif %}
+  {% elif event_type == "delivered" %}
+    <p>
+      Order <strong>{{ order.order_number }}</strong>
+      has been marked delivered.
+    </p>
+  {% elif event_type == "cancelled" %}
+    <p>
+      Order <strong>{{ order.order_number }}</strong>
+      has been cancelled.
+    </p>
+  {% elif event_type == "refunded" %}
+    <p>
+      The refund for
+      <strong>{{ order.order_number }}</strong>
+      has been completed.
+    </p>
+  {% else %}
+    <p>
+      There is an update for
+      <strong>{{ order.order_number }}</strong>.
+    </p>
+  {% endif %}
+
+  <p>
+    Order total:
+    <strong>₹{{ order.grand_total_including_gst }}</strong>
+  </p>
+
+  <p>Thank you,<br>Chokher Alo</p>
+</body>
+</html>

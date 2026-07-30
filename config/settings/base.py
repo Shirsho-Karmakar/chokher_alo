@@ -184,3 +184,45 @@ RAZORPAY_API_BASE_URL = os.environ.get(
 RAZORPAY_REQUEST_TIMEOUT_SECONDS = int(
     os.environ.get("RAZORPAY_REQUEST_TIMEOUT_SECONDS", "15")
 )
+
+
+# Retail notification delivery
+DEFAULT_FROM_EMAIL = os.environ.get(
+    "DEFAULT_FROM_EMAIL",
+    "Chokher Alo <no-reply@localhost>",
+)
+
+EMAIL_BACKEND = os.environ.get(
+    "DJANGO_EMAIL_BACKEND",
+    "django.core.mail.backends.console.EmailBackend",
+)
+
+RETAIL_NOTIFICATION_EMAIL_BACKEND = os.environ.get(
+    "RETAIL_NOTIFICATION_EMAIL_BACKEND",
+    (
+        "apps.retail_orders.notifications."
+        "DjangoEmailNotificationBackend"
+    ),
+)
+
+RETAIL_NOTIFICATION_SMS_BACKEND = os.environ.get(
+    "RETAIL_NOTIFICATION_SMS_BACKEND",
+    (
+        "apps.retail_orders.notifications."
+        "DevelopmentSMSNotificationBackend"
+    ),
+)
+
+RETAIL_NOTIFICATION_MAX_ATTEMPTS = int(
+    os.environ.get(
+        "RETAIL_NOTIFICATION_MAX_ATTEMPTS",
+        "5",
+    )
+)
+
+RETAIL_NOTIFICATION_BATCH_SIZE = int(
+    os.environ.get(
+        "RETAIL_NOTIFICATION_BATCH_SIZE",
+        "100",
+    )
+)

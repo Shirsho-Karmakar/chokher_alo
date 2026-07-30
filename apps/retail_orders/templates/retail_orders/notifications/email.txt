@@ -1,0 +1,27 @@
+Hello,
+
+{% if event_type == "payment_confirmed" %}
+We have confirmed payment for order {{ order.order_number }}.
+{% elif event_type == "processing" %}
+Order {{ order.order_number }} is now being processed.
+{% elif event_type == "shipped" %}
+Order {{ order.order_number }} has been shipped.
+{% if payload.carrier_name %}Carrier: {{ payload.carrier_name }}{% endif %}
+{% if payload.tracking_number %}Tracking number: {{ payload.tracking_number }}{% endif %}
+{% elif event_type == "ready_for_pickup" %}
+Order {{ order.order_number }} is ready for pickup.
+{% if order.store_location %}Pickup store: {{ order.store_location.name }}{% endif %}
+{% elif event_type == "delivered" %}
+Order {{ order.order_number }} has been marked delivered.
+{% elif event_type == "cancelled" %}
+Order {{ order.order_number }} has been cancelled.
+{% elif event_type == "refunded" %}
+The refund for order {{ order.order_number }} has been completed.
+{% else %}
+There is an update for order {{ order.order_number }}.
+{% endif %}
+
+Order total: ₹{{ order.grand_total_including_gst }}
+
+Thank you,
+Chokher Alo
