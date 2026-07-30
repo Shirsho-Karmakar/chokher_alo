@@ -104,6 +104,40 @@ class WholesaleAccount(models.Model):
     def is_approved(self) -> bool:
         return self.status == self.Status.APPROVED
 
+    def missing_checkout_details(self) -> tuple[str, ...]:
+        """
+        Return business details that must be completed before wholesale
+        checkout. GSTIN is intentionally optional.
+        """
+        missing_fields = []
+
+        if not self.business_name.strip():
+            missing_fields.append("business_name")
+
+        if not self.contact_person_name.strip():
+            missing_fields.append("contact_person_name")
+
+        if not self.invoice_email.strip():
+            missing_fields.append("invoice_email")
+
+        has_billing_address = self.user.addresses.filter(
+            is_active=True,
+            is_default_billing=True,
+        ).exists()
+
+        if not has_billing_address:
+            missing_fields.append("billing_address")
+
+        return tuple(missing_fields)
+
+    @property
+    def business_details_complete(self) -> bool:
+        return not self.missing_checkout_details()
+
+    @property
+    def is_checkout_ready(self) -> bool:
+        return self.is_approved and self.business_details_complete
+
     def __str__(self) -> str:
         phone_number = self.user.phone_number or "No phone"
         return f"{self.reference_id} — {phone_number}"

@@ -14,17 +14,23 @@ STAFF_GROUP_NAMES = (
 )
 
 
-# Permissions for future applications will be added as those applications
-# are implemented.
 STAFF_GROUP_PERMISSIONS = {
     CATALOGUE_MANAGER: (),
     INVENTORY_MANAGER: (),
     PRESCRIPTION_REVIEWER: (),
-    ORDER_MANAGER: (),
+    ORDER_MANAGER: (
+        ("locations", "view_address"),
+        ("locations", "view_serviceablepincode"),
+        ("locations", "add_serviceablepincode"),
+        ("locations", "change_serviceablepincode"),
+    ),
     ACCOUNTS_MANAGER: (
         ("accounts", "view_user"),
         ("wholesale", "view_wholesaleaccount"),
         ("wholesale", "change_wholesaleaccount"),
         ("wholesale", "review_wholesale_account"),
+        ("locations", "view_address"),
+        ("locations", "add_address"),
+        ("locations", "change_address"),
     ),
 }

@@ -31,6 +31,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "apps.accounts.apps.AccountsConfig",
     "apps.wholesale.apps.WholesaleConfig",
+    "apps.locations.apps.LocationsConfig",
 ]
 
 

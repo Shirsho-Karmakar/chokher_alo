@@ -70,3 +70,53 @@ class StaffRoleCommandTests(TestCase):
         self.assertTrue(
             expected_permissions.issubset(permissions)
         )
+
+
+class LocationStaffPermissionTests(TestCase):
+    def setUp(self):
+        call_command(
+            "sync_staff_roles",
+            stdout=StringIO(),
+        )
+
+    def permission_keys_for(self, group_name):
+        group = Group.objects.get(name=group_name)
+
+        return {
+            (
+                permission.content_type.app_label,
+                permission.codename,
+            )
+            for permission in group.permissions.select_related(
+                "content_type"
+            )
+        }
+
+    def test_accounts_manager_can_manage_customer_addresses(self):
+        permissions = self.permission_keys_for(
+            ACCOUNTS_MANAGER
+        )
+
+        expected = {
+            ("locations", "view_address"),
+            ("locations", "add_address"),
+            ("locations", "change_address"),
+        }
+
+        self.assertTrue(expected.issubset(permissions))
+
+    def test_order_manager_can_manage_serviceable_pin_codes(self):
+        from apps.accounts.roles import ORDER_MANAGER
+
+        permissions = self.permission_keys_for(
+            ORDER_MANAGER
+        )
+
+        expected = {
+            ("locations", "view_address"),
+            ("locations", "view_serviceablepincode"),
+            ("locations", "add_serviceablepincode"),
+            ("locations", "change_serviceablepincode"),
+        }
+
+        self.assertTrue(expected.issubset(permissions))
