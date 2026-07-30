@@ -113,6 +113,39 @@ STAFF_GROUP_PERMISSIONS = {
         ("retail_cart", "view_retailcartitem"),
         ("retail_cart", "view_poweredeyewearconfiguration"),
         ("retail_cart", "view_customerownedframeservice"),
+        ("wholesale_cart", "view_wholesalecart"),
+        ("wholesale_cart", "view_wholesalecartitem"),
+        ("wholesale_orders", "view_wholesaleorder"),
+        ("wholesale_orders", "change_wholesaleorder"),
+        (
+            "wholesale_orders",
+            "view_wholesaleorderaddresssnapshot",
+        ),
+        ("wholesale_orders", "view_wholesaleorderitem"),
+        (
+            "wholesale_orders",
+            "view_wholesalepaymentattempt",
+        ),
+        (
+            "wholesale_orders",
+            "change_wholesalepaymentattempt",
+        ),
+        (
+            "wholesale_orders",
+            "view_wholesalefulfillment",
+        ),
+        (
+            "wholesale_orders",
+            "change_wholesalefulfillment",
+        ),
+        (
+            "wholesale_orders",
+            "view_wholesalestockreservation",
+        ),
+        (
+            "wholesale_orders",
+            "change_wholesalestockreservation",
+        ),
         ("retail_orders", "view_storelocation"),
         ("retail_orders", "add_storelocation"),
         ("retail_orders", "change_storelocation"),
