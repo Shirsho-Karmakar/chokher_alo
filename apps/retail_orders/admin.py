@@ -3,7 +3,9 @@ from django.contrib import admin
 from .models import (
     RetailCheckoutPolicy,
     RetailFulfillmentGroup,
+    RetailFulfillmentStatusHistory,
     RetailOrder,
+    RetailOrderStatusHistory,
     RetailOrderAddressSnapshot,
     RetailOrderItem,
     RetailOrderNotificationEvent,
@@ -439,6 +441,86 @@ class RetailPaymentWebhookEventAdmin(admin.ModelAdmin):
     )
 
     def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+
+@admin.register(RetailOrderStatusHistory)
+class RetailOrderStatusHistoryAdmin(admin.ModelAdmin):
+    list_display = (
+        "order",
+        "previous_status",
+        "new_status",
+        "changed_by",
+        "created_at",
+    )
+    list_filter = (
+        "previous_status",
+        "new_status",
+        "created_at",
+    )
+    search_fields = (
+        "order__order_number",
+        "changed_by__username",
+        "changed_by__email",
+        "note",
+    )
+    readonly_fields = (
+        "order",
+        "previous_status",
+        "new_status",
+        "changed_by",
+        "note",
+        "metadata",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+
+@admin.register(RetailFulfillmentStatusHistory)
+class RetailFulfillmentStatusHistoryAdmin(admin.ModelAdmin):
+    list_display = (
+        "fulfillment_group",
+        "previous_status",
+        "new_status",
+        "changed_by",
+        "created_at",
+    )
+    list_filter = (
+        "previous_status",
+        "new_status",
+        "created_at",
+    )
+    search_fields = (
+        "fulfillment_group__order__order_number",
+        "fulfillment_group__title",
+        "changed_by__username",
+        "note",
+    )
+    readonly_fields = (
+        "fulfillment_group",
+        "previous_status",
+        "new_status",
+        "changed_by",
+        "note",
+        "metadata",
+        "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
         return False
 
     def has_delete_permission(self, request, obj=None):

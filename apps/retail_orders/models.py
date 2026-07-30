@@ -1498,3 +1498,129 @@ class RetailPaymentWebhookEvent(models.Model):
             f"{self.provider} — {self.event_type} — "
             f"{self.event_id}"
         )
+
+
+class RetailOrderStatusHistory(models.Model):
+    order = models.ForeignKey(
+        RetailOrder,
+        on_delete=models.CASCADE,
+        related_name="status_history",
+    )
+    previous_status = models.CharField(
+        max_length=30,
+        choices=RetailOrder.Status.choices,
+    )
+    new_status = models.CharField(
+        max_length=30,
+        choices=RetailOrder.Status.choices,
+    )
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="retail_order_status_changes",
+    )
+    note = models.TextField(blank=True)
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+        verbose_name = "Retail order status history"
+        verbose_name_plural = "Retail order status histories"
+        indexes = [
+            models.Index(
+                fields=["order", "-created_at"],
+                name="ret_ord_hist_order_idx",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(
+                    previous_status=models.F("new_status")
+                ),
+                name="ret_ord_hist_status_diff",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.note = self.note.strip()
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return (
+            f"{self.order.order_number}: "
+            f"{self.previous_status} → {self.new_status}"
+        )
+
+
+class RetailFulfillmentStatusHistory(models.Model):
+    fulfillment_group = models.ForeignKey(
+        RetailFulfillmentGroup,
+        on_delete=models.CASCADE,
+        related_name="status_history",
+    )
+    previous_status = models.CharField(
+        max_length=20,
+        choices=RetailFulfillmentGroup.Status.choices,
+    )
+    new_status = models.CharField(
+        max_length=20,
+        choices=RetailFulfillmentGroup.Status.choices,
+    )
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="retail_fulfillment_status_changes",
+    )
+    note = models.TextField(blank=True)
+    metadata = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+        verbose_name = "Retail fulfillment status history"
+        verbose_name_plural = (
+            "Retail fulfillment status histories"
+        )
+        indexes = [
+            models.Index(
+                fields=["fulfillment_group", "-created_at"],
+                name="ret_ful_hist_group_idx",
+            ),
+        ]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(
+                    previous_status=models.F("new_status")
+                ),
+                name="ret_ful_hist_status_diff",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+        self.note = self.note.strip()
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return (
+            f"{self.fulfillment_group}: "
+            f"{self.previous_status} → {self.new_status}"
+        )

@@ -29,9 +29,11 @@ from .razorpay_gateway import (
 from .models import (
     RetailCheckoutPolicy,
     RetailFulfillmentGroup,
+    RetailFulfillmentStatusHistory,
     RetailOrder,
     RetailOrderAddressSnapshot,
     RetailOrderItem,
+    RetailOrderStatusHistory,
     RetailOrderNotificationEvent,
     RetailPaymentAttempt,
     RetailStockReservation,
@@ -1596,6 +1598,8 @@ def confirm_online_payment(
         ]
     )
 
+    previous_order_status = order.status
+
     order.status = RetailOrder.Status.CONFIRMED
     order.payment_status = RetailOrder.PaymentStatus.PAID
     order.payment_confirmed_at = now
@@ -1606,6 +1610,13 @@ def confirm_online_payment(
             "payment_confirmed_at",
             "updated_at",
         ]
+    )
+
+    _record_order_status_change(
+        order=order,
+        previous_status=previous_order_status,
+        note="Online payment confirmed.",
+        metadata={"source": "online_payment"},
     )
 
     _convert_checkout_cart(cart=cart)
@@ -1664,6 +1675,8 @@ def fail_online_payment(
         ]
     )
 
+    previous_order_status = order.status
+
     order.status = RetailOrder.Status.PAYMENT_FAILED
     order.payment_status = RetailOrder.PaymentStatus.FAILED
     order.save(
@@ -1672,6 +1685,13 @@ def fail_online_payment(
             "payment_status",
             "updated_at",
         ]
+    )
+
+    _record_order_status_change(
+        order=order,
+        previous_status=previous_order_status,
+        note="Online payment failed.",
+        metadata={"source": "payment_failure"},
     )
 
     _reopen_checkout_cart(cart=cart)
@@ -1729,6 +1749,8 @@ def expire_online_payment_attempt(
         ]
     )
 
+    previous_order_status = order.status
+
     order.status = RetailOrder.Status.PAYMENT_FAILED
     order.payment_status = RetailOrder.PaymentStatus.FAILED
     order.save(
@@ -1737,6 +1759,13 @@ def expire_online_payment_attempt(
             "payment_status",
             "updated_at",
         ]
+    )
+
+    _record_order_status_change(
+        order=order,
+        previous_status=previous_order_status,
+        note="Online payment reservation expired.",
+        metadata={"source": "payment_expiry"},
     )
 
     _reopen_checkout_cart(cart=cart)
@@ -1844,6 +1873,8 @@ def cancel_retail_order(
             now=now,
         )
 
+    previous_order_status = order.status
+
     order.status = RetailOrder.Status.CANCELLED
     order.cancelled_at = now
     order.cancelled_by = cancelled_by
@@ -1861,6 +1892,14 @@ def cancel_retail_order(
 
     if cart.status == RetailCart.Status.CHECKOUT_STARTED:
         _reopen_checkout_cart(cart=cart)
+
+    _record_order_status_change(
+        order=order,
+        previous_status=previous_order_status,
+        actor=cancelled_by,
+        note=reason,
+        metadata={"source": "order_cancellation"},
+    )
 
     _queue_order_notification(
         order=order,
@@ -2251,4 +2290,799 @@ def prepare_razorpay_payment(
             attempt.allowed_payment_methods
         ),
         expires_at=attempt.expires_at,
+    )
+
+
+class RetailOrderOperationError(Exception):
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        *,
+        details=None,
+    ):
+        self.code = code
+        self.details = details
+        super().__init__(message)
+
+
+ORDER_STATUS_TRANSITIONS = {
+    RetailOrder.Status.CONFIRMED: {
+        RetailOrder.Status.PROCESSING,
+    },
+    RetailOrder.Status.PROCESSING: {
+        RetailOrder.Status.PRODUCTION,
+        RetailOrder.Status.PACKED,
+        RetailOrder.Status.READY_FOR_PICKUP,
+    },
+    RetailOrder.Status.PRODUCTION: {
+        RetailOrder.Status.PACKED,
+        RetailOrder.Status.READY_FOR_PICKUP,
+    },
+    RetailOrder.Status.PACKED: {
+        RetailOrder.Status.SHIPPED,
+    },
+    RetailOrder.Status.SHIPPED: {
+        RetailOrder.Status.DELIVERED,
+    },
+    RetailOrder.Status.READY_FOR_PICKUP: {
+        RetailOrder.Status.DELIVERED,
+    },
+}
+
+
+def _ensure_order_operator(actor):
+    if (
+        actor is None
+        or not actor.is_authenticated
+        or not actor.is_active
+        or not actor.is_staff
+    ):
+        raise RetailOrderOperationError(
+            "staff_access_required",
+            "An active staff account is required.",
+        )
+
+    if (
+        not actor.is_superuser
+        and not actor.has_perm(
+            "retail_orders.change_retailorder"
+        )
+    ):
+        raise RetailOrderOperationError(
+            "order_permission_required",
+            "Order Manager permission is required.",
+        )
+
+
+def _history_actor(actor):
+    if (
+        actor is not None
+        and getattr(actor, "is_authenticated", False)
+    ):
+        return actor
+
+    return None
+
+
+def _record_order_status_change(
+    *,
+    order,
+    previous_status,
+    actor=None,
+    note="",
+    metadata=None,
+):
+    if previous_status == order.status:
+        return None
+
+    return RetailOrderStatusHistory.objects.create(
+        order=order,
+        previous_status=previous_status,
+        new_status=order.status,
+        changed_by=_history_actor(actor),
+        note=note,
+        metadata=metadata or {},
+    )
+
+
+def _record_fulfillment_status_change(
+    *,
+    group,
+    previous_status,
+    actor=None,
+    note="",
+    metadata=None,
+):
+    if previous_status == group.status:
+        return None
+
+    return RetailFulfillmentStatusHistory.objects.create(
+        fulfillment_group=group,
+        previous_status=previous_status,
+        new_status=group.status,
+        changed_by=_history_actor(actor),
+        note=note,
+        metadata=metadata or {},
+    )
+
+
+def _set_fulfillment_status(
+    *,
+    group,
+    new_status,
+    actor,
+    note,
+    now,
+    metadata=None,
+    carrier_name=None,
+    tracking_number=None,
+):
+    if group.status == new_status:
+        return group
+
+    previous_status = group.status
+    update_fields = [
+        "status",
+        "updated_at",
+    ]
+
+    group.status = new_status
+
+    if new_status == RetailFulfillmentGroup.Status.PROCESSING:
+        group.processing_started_at = (
+            group.processing_started_at or now
+        )
+        update_fields.append("processing_started_at")
+
+    elif new_status == RetailFulfillmentGroup.Status.READY:
+        group.ready_at = group.ready_at or now
+        update_fields.append("ready_at")
+
+    elif new_status == RetailFulfillmentGroup.Status.SHIPPED:
+        group.shipped_at = group.shipped_at or now
+        update_fields.append("shipped_at")
+
+    elif new_status in {
+        RetailFulfillmentGroup.Status.DELIVERED,
+        RetailFulfillmentGroup.Status.COMPLETED,
+    }:
+        group.completed_at = group.completed_at or now
+        update_fields.append("completed_at")
+
+    if carrier_name is not None:
+        group.carrier_name = carrier_name.strip()
+        update_fields.append("carrier_name")
+
+    if tracking_number is not None:
+        group.tracking_number = tracking_number.strip()
+        update_fields.append("tracking_number")
+
+    group.save(update_fields=list(dict.fromkeys(update_fields)))
+
+    _record_fulfillment_status_change(
+        group=group,
+        previous_status=previous_status,
+        actor=actor,
+        note=note,
+        metadata=metadata,
+    )
+
+    return group
+
+
+def _synchronize_fulfillment_groups(
+    *,
+    order,
+    groups,
+    new_status,
+    actor,
+    note,
+    now,
+    carrier_name="",
+    tracking_number="",
+):
+    main_delivery_types = {
+        RetailFulfillmentGroup.GroupType.MAIN_DELIVERY,
+        RetailFulfillmentGroup.GroupType.CUSTOMER_FRAME_RETURN,
+    }
+    main_pickup_types = {
+        RetailFulfillmentGroup.GroupType.MAIN_PICKUP,
+        RetailFulfillmentGroup.GroupType.CUSTOMER_FRAME_RETURN,
+    }
+
+    if new_status == RetailOrder.Status.PROCESSING:
+        for group in groups:
+            if group.status == RetailFulfillmentGroup.Status.PENDING:
+                _set_fulfillment_status(
+                    group=group,
+                    new_status=(
+                        RetailFulfillmentGroup
+                        .Status.PROCESSING
+                    ),
+                    actor=actor,
+                    note=note,
+                    now=now,
+                )
+
+    elif new_status == RetailOrder.Status.PRODUCTION:
+        for group in groups:
+            if group.group_type == (
+                RetailFulfillmentGroup
+                .GroupType.POWERED_PRODUCTION
+            ):
+                _set_fulfillment_status(
+                    group=group,
+                    new_status=(
+                        RetailFulfillmentGroup
+                        .Status.PROCESSING
+                    ),
+                    actor=actor,
+                    note=note,
+                    now=now,
+                )
+
+    elif new_status == RetailOrder.Status.PACKED:
+        for group in groups:
+            target = (
+                RetailFulfillmentGroup.Status.READY
+                if group.group_type in main_delivery_types
+                else RetailFulfillmentGroup.Status.COMPLETED
+            )
+
+            _set_fulfillment_status(
+                group=group,
+                new_status=target,
+                actor=actor,
+                note=note,
+                now=now,
+            )
+
+    elif new_status == RetailOrder.Status.READY_FOR_PICKUP:
+        for group in groups:
+            target = (
+                RetailFulfillmentGroup.Status.READY
+                if group.group_type in main_pickup_types
+                else RetailFulfillmentGroup.Status.COMPLETED
+            )
+
+            _set_fulfillment_status(
+                group=group,
+                new_status=target,
+                actor=actor,
+                note=note,
+                now=now,
+            )
+
+    elif new_status == RetailOrder.Status.SHIPPED:
+        for group in groups:
+            if group.group_type in main_delivery_types:
+                _set_fulfillment_status(
+                    group=group,
+                    new_status=(
+                        RetailFulfillmentGroup.Status.SHIPPED
+                    ),
+                    actor=actor,
+                    note=note,
+                    now=now,
+                    carrier_name=carrier_name,
+                    tracking_number=tracking_number,
+                )
+            else:
+                _set_fulfillment_status(
+                    group=group,
+                    new_status=(
+                        RetailFulfillmentGroup
+                        .Status.COMPLETED
+                    ),
+                    actor=actor,
+                    note=note,
+                    now=now,
+                )
+
+    elif new_status == RetailOrder.Status.DELIVERED:
+        handoff_types = (
+            main_delivery_types | main_pickup_types
+        )
+
+        for group in groups:
+            target = (
+                RetailFulfillmentGroup.Status.DELIVERED
+                if group.group_type in handoff_types
+                else RetailFulfillmentGroup.Status.COMPLETED
+            )
+
+            _set_fulfillment_status(
+                group=group,
+                new_status=target,
+                actor=actor,
+                note=note,
+                now=now,
+            )
+
+
+def _validate_order_operation(
+    *,
+    order,
+    groups,
+    new_status,
+    carrier_name,
+    tracking_number,
+):
+    has_custom_items = order.items.filter(
+        is_custom=True
+    ).exists()
+
+    if new_status == RetailOrder.Status.PRODUCTION:
+        if not has_custom_items:
+            raise RetailOrderOperationError(
+                "production_not_required",
+                "This order does not contain custom lens work.",
+            )
+
+        incomplete_inbound = any(
+            group.group_type
+            == RetailFulfillmentGroup
+            .GroupType.CUSTOMER_FRAME_INBOUND
+            and group.status
+            != RetailFulfillmentGroup.Status.COMPLETED
+            for group in groups
+        )
+
+        if incomplete_inbound:
+            raise RetailOrderOperationError(
+                "customer_frame_not_received",
+                (
+                    "The customer's frame must be received "
+                    "before production begins."
+                ),
+            )
+
+    if new_status == RetailOrder.Status.PACKED:
+        if (
+            order.fulfillment_method
+            != RetailOrder.FulfillmentMethod.DELIVERY
+        ):
+            raise RetailOrderOperationError(
+                "packing_not_applicable",
+                "Store-pickup orders are not marked packed.",
+            )
+
+    if new_status == RetailOrder.Status.READY_FOR_PICKUP:
+        if (
+            order.fulfillment_method
+            != RetailOrder.FulfillmentMethod.STORE_PICKUP
+        ):
+            raise RetailOrderOperationError(
+                "pickup_not_applicable",
+                "Delivery orders cannot be marked ready for pickup.",
+            )
+
+    if new_status == RetailOrder.Status.SHIPPED:
+        if (
+            order.fulfillment_method
+            != RetailOrder.FulfillmentMethod.DELIVERY
+        ):
+            raise RetailOrderOperationError(
+                "shipping_not_applicable",
+                "Store-pickup orders cannot be shipped.",
+            )
+
+        if not carrier_name.strip():
+            raise RetailOrderOperationError(
+                "carrier_required",
+                "A carrier name is required before shipping.",
+            )
+
+        if not tracking_number.strip():
+            raise RetailOrderOperationError(
+                "tracking_number_required",
+                "A tracking number is required before shipping.",
+            )
+
+    if new_status == RetailOrder.Status.DELIVERED:
+        if (
+            order.payment_method
+            == RetailOrder.PaymentMethod.PAY_AT_STORE
+            and order.payment_status
+            != RetailOrder.PaymentStatus.PAID
+        ):
+            raise RetailOrderOperationError(
+                "pay_at_store_payment_required",
+                (
+                    "The store payment must be recorded "
+                    "before pickup completion."
+                ),
+            )
+
+
+@transaction.atomic
+def transition_retail_order(
+    *,
+    order,
+    new_status,
+    actor,
+    note="",
+    carrier_name="",
+    tracking_number="",
+    allow_superuser_override=False,
+):
+    _ensure_order_operator(actor)
+
+    order = (
+        RetailOrder.objects
+        .select_for_update(of=("self",))
+        .select_related(
+            "user",
+            "source_cart",
+            "store_location",
+        )
+        .get(pk=order.pk)
+    )
+
+    groups = list(
+        RetailFulfillmentGroup.objects
+        .select_for_update()
+        .filter(order=order)
+        .order_by("pk")
+    )
+
+    note = note.strip()
+
+    if new_status not in RetailOrder.Status.values:
+        raise RetailOrderOperationError(
+            "invalid_order_status",
+            "The requested order status is invalid.",
+        )
+
+    if order.status == new_status:
+        return order
+
+    if new_status in {
+        RetailOrder.Status.AWAITING_PAYMENT,
+        RetailOrder.Status.CONFIRMED,
+        RetailOrder.Status.PAYMENT_FAILED,
+        RetailOrder.Status.CANCELLED,
+    }:
+        raise RetailOrderOperationError(
+            "managed_status_required",
+            (
+                "This status must be changed by the payment "
+                "or cancellation workflow."
+            ),
+        )
+
+    allowed = ORDER_STATUS_TRANSITIONS.get(
+        order.status,
+        set(),
+    )
+
+    override_allowed = (
+        actor.is_superuser
+        and allow_superuser_override
+    )
+
+    if new_status not in allowed and not override_allowed:
+        raise RetailOrderOperationError(
+            "invalid_status_transition",
+            (
+                f"Order status cannot move from "
+                f"{order.status} to {new_status}."
+            ),
+        )
+
+    _validate_order_operation(
+        order=order,
+        groups=groups,
+        new_status=new_status,
+        carrier_name=carrier_name,
+        tracking_number=tracking_number,
+    )
+
+    previous_status = order.status
+    now = timezone.now()
+    update_fields = [
+        "status",
+        "updated_at",
+    ]
+
+    order.status = new_status
+
+    timestamp_fields = {
+        RetailOrder.Status.PROCESSING: (
+            "processing_started_at"
+        ),
+        RetailOrder.Status.PRODUCTION: (
+            "production_started_at"
+        ),
+        RetailOrder.Status.READY_FOR_PICKUP: (
+            "ready_for_pickup_at"
+        ),
+        RetailOrder.Status.PACKED: "packed_at",
+        RetailOrder.Status.SHIPPED: "shipped_at",
+        RetailOrder.Status.DELIVERED: "delivered_at",
+    }
+
+    timestamp_field = timestamp_fields.get(new_status)
+
+    if timestamp_field:
+        if getattr(order, timestamp_field) is None:
+            setattr(order, timestamp_field, now)
+
+        update_fields.append(timestamp_field)
+
+    order.save(
+        update_fields=list(dict.fromkeys(update_fields))
+    )
+
+    _synchronize_fulfillment_groups(
+        order=order,
+        groups=groups,
+        new_status=new_status,
+        actor=actor,
+        note=note,
+        now=now,
+        carrier_name=carrier_name,
+        tracking_number=tracking_number,
+    )
+
+    _record_order_status_change(
+        order=order,
+        previous_status=previous_status,
+        actor=actor,
+        note=note,
+        metadata={
+            "superuser_override": override_allowed,
+        },
+    )
+
+    notification_types = {
+        RetailOrder.Status.PROCESSING: (
+            RetailOrderNotificationEvent
+            .EventType.PROCESSING
+        ),
+        RetailOrder.Status.READY_FOR_PICKUP: (
+            RetailOrderNotificationEvent
+            .EventType.READY_FOR_PICKUP
+        ),
+        RetailOrder.Status.SHIPPED: (
+            RetailOrderNotificationEvent
+            .EventType.SHIPPED
+        ),
+        RetailOrder.Status.DELIVERED: (
+            RetailOrderNotificationEvent
+            .EventType.DELIVERED
+        ),
+    }
+
+    event_type = notification_types.get(new_status)
+
+    if event_type is not None:
+        payload = {}
+
+        if new_status == RetailOrder.Status.SHIPPED:
+            payload = {
+                "carrier_name": carrier_name.strip(),
+                "tracking_number": tracking_number.strip(),
+            }
+
+        _queue_order_notification(
+            order=order,
+            event_type=event_type,
+            payload=payload,
+        )
+
+    return order
+
+
+@transaction.atomic
+def record_customer_frame_received(
+    *,
+    fulfillment_group,
+    actor,
+    note="",
+):
+    _ensure_order_operator(actor)
+
+    group = (
+        RetailFulfillmentGroup.objects
+        .select_for_update()
+        .select_related("order")
+        .get(pk=fulfillment_group.pk)
+    )
+
+    if group.group_type != (
+        RetailFulfillmentGroup
+        .GroupType.CUSTOMER_FRAME_INBOUND
+    ):
+        raise RetailOrderOperationError(
+            "invalid_fulfillment_group",
+            (
+                "Only a customer-frame inbound group "
+                "can be marked received."
+            ),
+        )
+
+    if group.status == RetailFulfillmentGroup.Status.COMPLETED:
+        return group
+
+    if group.status not in {
+        RetailFulfillmentGroup.Status.PENDING,
+        RetailFulfillmentGroup.Status.PROCESSING,
+    }:
+        raise RetailOrderOperationError(
+            "frame_receipt_not_allowed",
+            "This frame-receipt status cannot be changed.",
+        )
+
+    return _set_fulfillment_status(
+        group=group,
+        new_status=(
+            RetailFulfillmentGroup.Status.COMPLETED
+        ),
+        actor=actor,
+        note=note or "Customer frame received by store.",
+        now=timezone.now(),
+        metadata={
+            "operation": "customer_frame_received",
+        },
+    )
+
+
+@transaction.atomic
+def mark_pay_at_store_paid(
+    *,
+    order,
+    actor,
+    note="",
+    receipt_reference="",
+):
+    _ensure_order_operator(actor)
+
+    order = (
+        RetailOrder.objects
+        .select_for_update()
+        .select_related("user")
+        .get(pk=order.pk)
+    )
+
+    if (
+        order.payment_method
+        != RetailOrder.PaymentMethod.PAY_AT_STORE
+    ):
+        raise RetailOrderOperationError(
+            "not_pay_at_store",
+            "This order does not use pay-at-store payment.",
+        )
+
+    if order.status == RetailOrder.Status.CANCELLED:
+        raise RetailOrderOperationError(
+            "order_cancelled",
+            "A cancelled order cannot be marked paid.",
+        )
+
+    if order.payment_status == RetailOrder.PaymentStatus.PAID:
+        return order
+
+    attempt = (
+        RetailPaymentAttempt.objects
+        .select_for_update()
+        .filter(order=order)
+        .order_by("-created_at")
+        .first()
+    )
+
+    if attempt is None:
+        raise RetailOrderOperationError(
+            "payment_attempt_missing",
+            "The pay-at-store payment attempt is missing.",
+        )
+
+    now = timezone.now()
+
+    attempt.status = RetailPaymentAttempt.Status.CAPTURED
+    attempt.paid_at = now
+    attempt.response_payload = {
+        **attempt.response_payload,
+        "pay_at_store": {
+            "recorded_by_user_id": actor.pk,
+            "receipt_reference": receipt_reference.strip(),
+            "note": note.strip(),
+        },
+    }
+    attempt.save(
+        update_fields=[
+            "status",
+            "paid_at",
+            "response_payload",
+            "updated_at",
+        ]
+    )
+
+    order.payment_status = RetailOrder.PaymentStatus.PAID
+    order.payment_confirmed_at = now
+    order.save(
+        update_fields=[
+            "payment_status",
+            "payment_confirmed_at",
+            "updated_at",
+        ]
+    )
+
+    _queue_order_notification(
+        order=order,
+        event_type=(
+            RetailOrderNotificationEvent
+            .EventType.PAYMENT_CONFIRMED
+        ),
+        payload={
+            "payment_method": (
+                RetailOrder.PaymentMethod.PAY_AT_STORE
+            ),
+        },
+    )
+
+    return order
+
+
+def start_order_processing(*, order, actor, note=""):
+    return transition_retail_order(
+        order=order,
+        new_status=RetailOrder.Status.PROCESSING,
+        actor=actor,
+        note=note,
+    )
+
+
+def start_order_production(*, order, actor, note=""):
+    return transition_retail_order(
+        order=order,
+        new_status=RetailOrder.Status.PRODUCTION,
+        actor=actor,
+        note=note,
+    )
+
+
+def mark_order_packed(*, order, actor, note=""):
+    return transition_retail_order(
+        order=order,
+        new_status=RetailOrder.Status.PACKED,
+        actor=actor,
+        note=note,
+    )
+
+
+def mark_order_ready_for_pickup(*, order, actor, note=""):
+    return transition_retail_order(
+        order=order,
+        new_status=RetailOrder.Status.READY_FOR_PICKUP,
+        actor=actor,
+        note=note,
+    )
+
+
+def mark_order_shipped(
+    *,
+    order,
+    actor,
+    carrier_name,
+    tracking_number,
+    note="",
+):
+    return transition_retail_order(
+        order=order,
+        new_status=RetailOrder.Status.SHIPPED,
+        actor=actor,
+        note=note,
+        carrier_name=carrier_name,
+        tracking_number=tracking_number,
+    )
+
+
+def mark_order_delivered(*, order, actor, note=""):
+    return transition_retail_order(
+        order=order,
+        new_status=RetailOrder.Status.DELIVERED,
+        actor=actor,
+        note=note,
     )
