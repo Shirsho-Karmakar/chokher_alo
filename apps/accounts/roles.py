@@ -108,6 +108,10 @@ STAFF_GROUP_PERMISSIONS = {
         ("locations", "view_serviceablepincode"),
         ("locations", "add_serviceablepincode"),
         ("locations", "change_serviceablepincode"),
+        ("retail_cart", "view_retailcart"),
+        ("retail_cart", "view_retailcartitem"),
+        ("retail_cart", "view_poweredeyewearconfiguration"),
+        ("retail_cart", "view_customerownedframeservice"),
     ),
     ACCOUNTS_MANAGER: (
         ("accounts", "view_user"),

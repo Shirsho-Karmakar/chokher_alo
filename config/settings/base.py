@@ -36,6 +36,7 @@ INSTALLED_APPS = [
     "apps.prescriptions.apps.PrescriptionsConfig",
     "apps.lenses.apps.LensesConfig",
     "apps.wholesale_catalog.apps.WholesaleCatalogConfig",
+    "apps.retail_cart.apps.RetailCartConfig",
 ]
 
 
