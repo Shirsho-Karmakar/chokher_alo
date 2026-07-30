@@ -35,6 +35,7 @@ INSTALLED_APPS = [
     "apps.catalog.apps.CatalogConfig",
     "apps.prescriptions.apps.PrescriptionsConfig",
     "apps.lenses.apps.LensesConfig",
+    "apps.wholesale_catalog.apps.WholesaleCatalogConfig",
 ]
 
 
