@@ -1076,3 +1076,91 @@ def refresh_retail_cart(
         checkout_ready=checkout_ready,
         has_unpriced_items=has_unpriced_items,
     )
+
+
+@transaction.atomic
+def update_standard_item_quantity(
+    *,
+    item: RetailCartItem,
+    quantity: int,
+) -> RetailCartItem:
+    """
+    Replace the quantity of an existing standard cart item.
+
+    Configured/custom items remain restricted to quantity one.
+    """
+    _ensure_quantity(quantity)
+
+    item = (
+        RetailCartItem.objects
+        .select_for_update(of=("self",))
+        .select_related(
+            "cart",
+            "offer",
+            "offer__variant",
+            "offer__variant__design",
+        )
+        .get(pk=item.pk)
+    )
+
+    cart = (
+        RetailCart.objects
+        .select_for_update()
+        .get(pk=item.cart_id)
+    )
+    _ensure_open_cart(cart)
+
+    if item.item_type != RetailCartItem.ItemType.STANDARD:
+        raise RetailCartError(
+            "quantity_not_editable",
+            "Only standard retail-item quantities can be changed.",
+        )
+
+    _ensure_offer_available(
+        item.offer,
+        quantity=quantity,
+    )
+
+    item.quantity = quantity
+    item.save(
+        update_fields=[
+            "quantity",
+            "updated_at",
+        ]
+    )
+
+    _set_item_price(
+        item,
+        item.offer.selling_price_including_gst,
+    )
+
+    return item
+
+
+@transaction.atomic
+def remove_retail_cart_item(
+    *,
+    item: RetailCartItem,
+) -> int:
+    """
+    Remove one item and its cascading configuration records.
+
+    Product, lens, and prescription records remain untouched.
+    """
+    item = (
+        RetailCartItem.objects
+        .select_for_update(of=("self",))
+        .get(pk=item.pk)
+    )
+
+    cart = (
+        RetailCart.objects
+        .select_for_update()
+        .get(pk=item.cart_id)
+    )
+    _ensure_open_cart(cart)
+
+    item_id = item.pk
+    item.delete()
+
+    return item_id

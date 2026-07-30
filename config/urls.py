@@ -28,4 +28,8 @@ urlpatterns = [
         "catalogue/",
         include("apps.catalog.urls"),
     ),
+    path(
+        "cart/",
+        include("apps.retail_cart.urls"),
+    ),
 ]
