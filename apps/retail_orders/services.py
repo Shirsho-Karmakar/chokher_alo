@@ -19,6 +19,13 @@ from apps.retail_cart.services import (
     refresh_retail_cart,
 )
 
+from .razorpay_gateway import (
+    RazorpayGateway,
+    RazorpayGatewayError,
+    RazorpayPaymentSession,
+    amount_to_subunits,
+)
+
 from .models import (
     RetailCheckoutPolicy,
     RetailFulfillmentGroup,
@@ -1939,3 +1946,309 @@ def mark_retail_order_refunded(
     )
 
     return order
+
+
+@dataclass(frozen=True)
+class RetailCheckoutPreview:
+    cart_id: int
+    fulfillment_method: str
+    payment_method: str
+    shipping_address: Address | None
+    billing_address: Address
+    billing_same_as_shipping: bool
+    store_location: StoreLocation | None
+    subtotal_including_gst: Decimal
+    delivery_fee_including_gst: Decimal
+    grand_total_including_gst: Decimal
+    currency: str
+    policy_snapshot: dict
+
+
+@transaction.atomic
+def preview_retail_checkout(
+    *,
+    cart,
+    fulfillment_method,
+    payment_method,
+    shipping_address=None,
+    billing_address=None,
+    billing_same_as_shipping=True,
+) -> RetailCheckoutPreview:
+    cart = (
+        RetailCart.objects
+        .select_for_update()
+        .select_related("user")
+        .get(pk=cart.pk)
+    )
+
+    if cart.status != RetailCart.Status.OPEN:
+        raise RetailCheckoutError(
+            "cart_not_open",
+            "The retail cart is not open.",
+        )
+
+    if (
+        fulfillment_method
+        not in RetailOrder.FulfillmentMethod.values
+    ):
+        raise RetailCheckoutError(
+            "invalid_fulfillment_method",
+            "Select delivery or store pickup.",
+        )
+
+    if payment_method not in RetailOrder.PaymentMethod.values:
+        raise RetailCheckoutError(
+            "invalid_payment_method",
+            "Select a supported payment method.",
+        )
+
+    policy = _active_policy()
+
+    if (
+        payment_method
+        == RetailOrder.PaymentMethod.PAY_AT_STORE
+    ):
+        if not policy.pay_at_store_enabled:
+            raise RetailCheckoutError(
+                "pay_at_store_disabled",
+                "Pay at store is currently unavailable.",
+            )
+
+        if (
+            fulfillment_method
+            != RetailOrder.FulfillmentMethod.STORE_PICKUP
+        ):
+            raise RetailCheckoutError(
+                "pay_at_store_requires_pickup",
+                "Pay at store is only available for store pickup.",
+            )
+
+    try:
+        validation = refresh_retail_cart(cart=cart)
+    except RetailCartError as exc:
+        raise RetailCheckoutError(
+            exc.code,
+            str(exc),
+        ) from exc
+
+    if not validation.checkout_ready:
+        raise RetailCheckoutError(
+            "cart_not_ready",
+            "The cart is not ready for checkout.",
+            details={
+                "issues": [
+                    {
+                        "code": issue.code,
+                        "message": issue.message,
+                        "item_id": issue.item_id,
+                        "blocking": issue.blocking,
+                    }
+                    for issue in validation.issues
+                ]
+            },
+        )
+
+    cart_items = _load_cart_items(cart)
+
+    if not cart_items:
+        raise RetailCheckoutError(
+            "empty_cart",
+            "The cart does not contain any purchasable items.",
+        )
+
+    shipping, billing, billing_same = _resolve_addresses(
+        user=cart.user,
+        fulfillment_method=fulfillment_method,
+        shipping_address=shipping_address,
+        billing_address=billing_address,
+        billing_same_as_shipping=billing_same_as_shipping,
+    )
+
+    store = None
+
+    if _needs_operational_store(
+        cart_items=cart_items,
+        fulfillment_method=fulfillment_method,
+    ):
+        store = _default_store()
+
+    subtotal = _money(
+        validation.subtotal_including_gst
+    )
+    delivery_fee = Decimal("0.00")
+
+    if (
+        fulfillment_method
+        == RetailOrder.FulfillmentMethod.DELIVERY
+    ):
+        delivery_fee = policy.delivery_fee_for(
+            subtotal
+        )
+
+    return RetailCheckoutPreview(
+        cart_id=cart.pk,
+        fulfillment_method=fulfillment_method,
+        payment_method=payment_method,
+        shipping_address=shipping,
+        billing_address=billing,
+        billing_same_as_shipping=billing_same,
+        store_location=store,
+        subtotal_including_gst=subtotal,
+        delivery_fee_including_gst=delivery_fee,
+        grand_total_including_gst=_money(
+            subtotal + delivery_fee
+        ),
+        currency=policy.currency,
+        policy_snapshot=_policy_snapshot(policy),
+    )
+
+
+def prepare_razorpay_payment(
+    *,
+    payment_attempt,
+    gateway=None,
+) -> RazorpayPaymentSession:
+    """
+    Create or reuse the Razorpay provider order for an attempt.
+
+    The external request is deliberately performed outside a database
+    transaction so inventory locks are not held during network I/O.
+    """
+    gateway = gateway or RazorpayGateway()
+
+    attempt = (
+        RetailPaymentAttempt.objects
+        .select_related(
+            "order",
+            "order__user",
+        )
+        .get(pk=payment_attempt.pk)
+    )
+
+    if (
+        attempt.payment_method
+        != RetailOrder.PaymentMethod.RAZORPAY
+    ):
+        raise RetailCheckoutError(
+            "invalid_payment_method",
+            "This attempt is not an online payment.",
+        )
+
+    if attempt.status not in {
+        RetailPaymentAttempt.Status.CREATED,
+        RetailPaymentAttempt.Status.PENDING,
+    }:
+        raise RetailCheckoutError(
+            "payment_attempt_not_preparable",
+            "This payment attempt cannot be prepared.",
+        )
+
+    if attempt.provider_order_id:
+        return RazorpayPaymentSession(
+            key_id=gateway.key_id,
+            provider_order_id=attempt.provider_order_id,
+            amount_subunits=amount_to_subunits(
+                attempt.amount_including_gst
+            ),
+            currency=attempt.currency,
+            receipt=attempt.order.order_number,
+            allowed_payment_methods=tuple(
+                attempt.allowed_payment_methods
+            ),
+            expires_at=attempt.expires_at,
+        )
+
+    request_payload = {
+        "amount_including_gst": str(
+            attempt.amount_including_gst
+        ),
+        "currency": attempt.currency,
+        "receipt": attempt.order.order_number,
+        "notes": {
+            "retail_order_number": (
+                attempt.order.order_number
+            ),
+            "payment_attempt_id": str(attempt.pk),
+            "customer_id": str(attempt.order.user_id),
+        },
+    }
+
+    provider_order = gateway.create_order(
+        amount_including_gst=(
+            attempt.amount_including_gst
+        ),
+        currency=attempt.currency,
+        receipt=attempt.order.order_number,
+        notes=request_payload["notes"],
+    )
+
+    provider_order_id = provider_order.get("id")
+
+    if not provider_order_id:
+        raise RazorpayGatewayError(
+            "razorpay_order_id_missing",
+            "Razorpay did not return an order ID.",
+            payload=provider_order,
+        )
+
+    expected_amount = amount_to_subunits(
+        attempt.amount_including_gst
+    )
+
+    if provider_order.get("amount") != expected_amount:
+        raise RazorpayGatewayError(
+            "razorpay_order_amount_mismatch",
+            "The Razorpay order amount did not match checkout.",
+            payload=provider_order,
+        )
+
+    if provider_order.get("currency") != attempt.currency:
+        raise RazorpayGatewayError(
+            "razorpay_order_currency_mismatch",
+            "The Razorpay order currency did not match checkout.",
+            payload=provider_order,
+        )
+
+    with transaction.atomic():
+        locked_attempt = (
+            RetailPaymentAttempt.objects
+            .select_for_update()
+            .get(pk=attempt.pk)
+        )
+
+        if locked_attempt.provider_order_id:
+            provider_order_id = (
+                locked_attempt.provider_order_id
+            )
+        else:
+            locked_attempt.provider_order_id = (
+                provider_order_id
+            )
+            locked_attempt.status = (
+                RetailPaymentAttempt.Status.PENDING
+            )
+            locked_attempt.request_payload = request_payload
+            locked_attempt.response_payload = {
+                "provider_order": provider_order,
+            }
+            locked_attempt.save(
+                update_fields=[
+                    "provider_order_id",
+                    "status",
+                    "request_payload",
+                    "response_payload",
+                    "updated_at",
+                ]
+            )
+
+    return RazorpayPaymentSession(
+        key_id=gateway.key_id,
+        provider_order_id=provider_order_id,
+        amount_subunits=expected_amount,
+        currency=attempt.currency,
+        receipt=attempt.order.order_number,
+        allowed_payment_methods=tuple(
+            attempt.allowed_payment_methods
+        ),
+        expires_at=attempt.expires_at,
+    )

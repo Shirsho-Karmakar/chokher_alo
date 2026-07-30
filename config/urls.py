@@ -32,4 +32,8 @@ urlpatterns = [
         "cart/",
         include("apps.retail_cart.urls"),
     ),
+    path(
+        "retail/",
+        include("apps.retail_orders.urls"),
+    ),
 ]

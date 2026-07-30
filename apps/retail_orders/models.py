@@ -1403,3 +1403,98 @@ class RetailOrderNotificationEvent(models.Model):
             f"{self.get_event_type_display()} — "
             f"{self.get_channel_display()}"
         )
+
+
+class RetailPaymentWebhookEvent(models.Model):
+    """
+    An idempotency and audit record for a Razorpay webhook delivery.
+
+    The signature is verified before the JSON body is processed.
+    """
+
+    class Status(models.TextChoices):
+        RECEIVED = "received", "Received"
+        PROCESSED = "processed", "Processed"
+        IGNORED = "ignored", "Ignored"
+        FAILED = "failed", "Failed"
+
+    provider = models.CharField(
+        max_length=30,
+        default="razorpay",
+        editable=False,
+    )
+    event_id = models.CharField(
+        max_length=150,
+        unique=True,
+    )
+    event_type = models.CharField(
+        max_length=100,
+    )
+
+    order = models.ForeignKey(
+        RetailOrder,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="payment_webhook_events",
+    )
+    payment_attempt = models.ForeignKey(
+        RetailPaymentAttempt,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="webhook_events",
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.RECEIVED,
+        db_index=True,
+    )
+
+    signature = models.TextField(blank=True)
+    payload = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+    error_message = models.TextField(blank=True)
+
+    processed_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["event_type", "-created_at"],
+                name="pay_webhook_type_idx",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        self.event_id = self.event_id.strip()
+        self.event_type = self.event_type.strip()
+        self.signature = self.signature.strip()
+        self.error_message = self.error_message.strip()
+
+        if not self.event_id:
+            raise ValidationError(
+                {"event_id": "A provider event ID is required."}
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return (
+            f"{self.provider} — {self.event_type} — "
+            f"{self.event_id}"
+        )

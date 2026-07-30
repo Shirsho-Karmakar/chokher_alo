@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 import environ
@@ -167,3 +168,19 @@ PHONE_OTP_MAX_SENDS_PER_HOUR = env.int(
     default=5,
 )
 
+
+
+# Razorpay payment gateway
+RAZORPAY_KEY_ID = os.environ.get("RAZORPAY_KEY_ID", "")
+RAZORPAY_KEY_SECRET = os.environ.get("RAZORPAY_KEY_SECRET", "")
+RAZORPAY_WEBHOOK_SECRET = os.environ.get(
+    "RAZORPAY_WEBHOOK_SECRET",
+    "",
+)
+RAZORPAY_API_BASE_URL = os.environ.get(
+    "RAZORPAY_API_BASE_URL",
+    "https://api.razorpay.com/v1",
+)
+RAZORPAY_REQUEST_TIMEOUT_SECONDS = int(
+    os.environ.get("RAZORPAY_REQUEST_TIMEOUT_SECONDS", "15")
+)

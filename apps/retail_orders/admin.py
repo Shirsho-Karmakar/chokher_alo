@@ -8,6 +8,7 @@ from .models import (
     RetailOrderItem,
     RetailOrderNotificationEvent,
     RetailPaymentAttempt,
+    RetailPaymentWebhookEvent,
     RetailStockReservation,
     StoreLocation,
 )
@@ -387,6 +388,52 @@ class RetailOrderNotificationEventAdmin(admin.ModelAdmin):
         "channel",
         "recipient",
         "payload",
+        "created_at",
+        "updated_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return request.user.is_superuser
+
+
+@admin.register(RetailPaymentWebhookEvent)
+class RetailPaymentWebhookEventAdmin(admin.ModelAdmin):
+    list_display = (
+        "event_id",
+        "event_type",
+        "status",
+        "order",
+        "payment_attempt",
+        "processed_at",
+        "created_at",
+    )
+    list_filter = (
+        "provider",
+        "event_type",
+        "status",
+        "created_at",
+    )
+    search_fields = (
+        "event_id",
+        "event_type",
+        "order__order_number",
+        "payment_attempt__provider_order_id",
+        "payment_attempt__provider_payment_id",
+    )
+    readonly_fields = (
+        "provider",
+        "event_id",
+        "event_type",
+        "order",
+        "payment_attempt",
+        "status",
+        "signature",
+        "payload",
+        "error_message",
+        "processed_at",
         "created_at",
         "updated_at",
     )

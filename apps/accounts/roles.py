@@ -130,6 +130,8 @@ STAFF_GROUP_PERMISSIONS = {
         ("retail_orders", "change_retailpaymentattempt"),
         ("retail_orders", "view_retailordernotificationevent"),
         ("retail_orders", "change_retailordernotificationevent"),
+        ("retail_orders", "view_retailpaymentwebhookevent"),
+        ("retail_orders", "change_retailpaymentwebhookevent"),
     ),
     ACCOUNTS_MANAGER: (
         ("accounts", "view_user"),
