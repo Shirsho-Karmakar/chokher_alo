@@ -64,6 +64,9 @@ STAFF_GROUP_PERMISSIONS = {
         ("lenses", "view_lensallowedaxis"),
         ("lenses", "add_lensallowedaxis"),
         ("lenses", "change_lensallowedaxis"),
+        ("lenses", "view_lenspricerule"),
+        ("lenses", "add_lenspricerule"),
+        ("lenses", "change_lenspricerule"),
     ),
     INVENTORY_MANAGER: (),
     PRESCRIPTION_REVIEWER: (

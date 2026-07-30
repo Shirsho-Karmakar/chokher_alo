@@ -4,6 +4,7 @@ from .models import (
     LensAllowedAxis,
     LensCoating,
     LensPrescriptionRule,
+    LensPriceRule,
     LensRefractiveIndex,
     LensSpecification,
     LensVisionType,
@@ -133,3 +134,96 @@ class LensAllowedAxisAdmin(admin.ModelAdmin):
         "rule__lens__offer__sku",
     )
     autocomplete_fields = ("rule",)
+
+
+@admin.register(LensPriceRule)
+class LensPriceRuleAdmin(admin.ModelAdmin):
+    list_display = (
+        "name",
+        "lens",
+        "rule_type",
+        "amount_including_gst",
+        "priority",
+        "is_stackable",
+        "is_active",
+    )
+    list_filter = (
+        "rule_type",
+        "is_stackable",
+        "is_active",
+        "lens__vision_type",
+        "lens__refractive_index",
+    )
+    search_fields = (
+        "name",
+        "lens__offer__sku",
+        "lens__offer__variant__design__name",
+        "coating__code",
+        "coating__name",
+    )
+    autocomplete_fields = (
+        "lens",
+        "coating",
+        "frame_type",
+        "frame_shape",
+        "material",
+    )
+    readonly_fields = (
+        "created_at",
+        "updated_at",
+    )
+
+    fieldsets = (
+        (
+            "Rule",
+            {
+                "fields": (
+                    "lens",
+                    "rule_type",
+                    "name",
+                    "amount_including_gst",
+                    "priority",
+                    "is_stackable",
+                    "is_active",
+                )
+            },
+        ),
+        (
+            "Coating condition",
+            {
+                "fields": ("coating",),
+            },
+        ),
+        (
+            "Power conditions",
+            {
+                "fields": (
+                    "minimum_abs_sphere",
+                    "maximum_abs_sphere",
+                    "minimum_abs_cylinder",
+                    "maximum_abs_cylinder",
+                    "minimum_add_power",
+                    "maximum_add_power",
+                )
+            },
+        ),
+        (
+            "Frame conditions",
+            {
+                "fields": (
+                    "frame_type",
+                    "frame_shape",
+                    "material",
+                )
+            },
+        ),
+        (
+            "Timestamps",
+            {
+                "fields": (
+                    "created_at",
+                    "updated_at",
+                )
+            },
+        ),
+    )
