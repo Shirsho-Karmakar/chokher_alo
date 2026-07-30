@@ -27,13 +27,29 @@ class User(AbstractUser):
     email_verified = models.BooleanField(default=False)
     phone_verified = models.BooleanField(default=False)
 
+    def _normalize_optional_identifiers(self):
+        """
+        Store missing unique identifiers as NULL rather than empty strings.
+
+        PostgreSQL permits multiple NULL values in unique columns, but only
+        one empty string.
+        """
+        self.email = self.email.strip() if self.email else None
+        self.phone_number = (
+            self.phone_number.strip()
+            if self.phone_number
+            else None
+        )
+
     def clean(self):
         super().clean()
+        self._normalize_optional_identifiers()
 
-        # PostgreSQL permits multiple NULL values in unique columns, but not
-        # multiple empty strings. Normalize blank optional identifiers to NULL.
-        self.email = self.email or None
-        self.phone_number = self.phone_number or None
+    def save(self, *args, **kwargs):
+        # Model.save() and UserManager.create_user() do not automatically call
+        # full_clean(), so normalization must also happen at the save boundary.
+        self._normalize_optional_identifiers()
+        return super().save(*args, **kwargs)
 
     def __str__(self):
         return self.email or self.phone_number or self.username

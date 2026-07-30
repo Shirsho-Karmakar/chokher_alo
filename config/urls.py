@@ -12,4 +12,8 @@ urlpatterns = [
         "wholesale/",
         include("apps.wholesale.urls"),
     ),
+    path(
+        "prescriptions/",
+        include("apps.prescriptions.urls"),
+    ),
 ]
