@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<body>
+  <p>Hello,</p>
+
+  {% if event_type == "submitted" %}
+    <p>
+      A new prescription,
+      <strong>#{{ prescription.id }}</strong>,
+      has been submitted for review.
+    </p>
+  {% elif event_type == "approved" %}
+    <p>
+      Your prescription
+      <strong>#{{ prescription.id }}</strong>
+      has been approved.
+    </p>
+  {% elif event_type == "clarification_required" %}
+    <p>
+      We need more information for prescription
+      <strong>#{{ prescription.id }}</strong>.
+    </p>
+    {% if payload.customer_review_message %}
+      <p>{{ payload.customer_review_message }}</p>
+    {% endif %}
+  {% elif event_type == "rejected" %}
+    <p>
+      Prescription
+      <strong>#{{ prescription.id }}</strong>
+      could not be approved.
+    </p>
+    {% if payload.customer_review_message %}
+      <p>Reason: {{ payload.customer_review_message }}</p>
+    {% endif %}
+  {% endif %}
+
+  <p>Thank you,<br>Chokher Alo</p>
+</body>
+</html>

@@ -81,6 +81,13 @@ class Prescription(models.Model):
     )
 
     customer_notes = models.TextField(blank=True)
+    customer_review_message = models.TextField(
+        blank=True,
+        help_text=(
+            "Visible to the customer when clarification "
+            "or rejection details are required."
+        ),
+    )
     admin_notes = models.TextField(
         blank=True,
         help_text="Visible only to authorized staff.",
@@ -114,6 +121,9 @@ class Prescription(models.Model):
         super().clean()
 
         self.customer_notes = self.customer_notes.strip()
+        self.customer_review_message = (
+            self.customer_review_message.strip()
+        )
         self.admin_notes = self.admin_notes.strip()
 
     def save(self, *args, **kwargs):
@@ -253,4 +263,119 @@ class PrescriptionEyeValue(models.Model):
         return (
             f"{self.get_eye_display()} — "
             f"Prescription #{self.prescription_id}"
+        )
+
+
+class PrescriptionNotificationEvent(models.Model):
+    class EventType(models.TextChoices):
+        SUBMITTED = "submitted", "Prescription submitted"
+        APPROVED = "approved", "Prescription approved"
+        CLARIFICATION_REQUIRED = (
+            "clarification_required",
+            "Clarification required",
+        )
+        REJECTED = "rejected", "Prescription rejected"
+
+    class Channel(models.TextChoices):
+        EMAIL = "email", "Email"
+        SMS = "sms", "SMS"
+
+    class Status(models.TextChoices):
+        PENDING = "pending", "Pending"
+        SENT = "sent", "Sent"
+        FAILED = "failed", "Failed"
+        CANCELLED = "cancelled", "Cancelled"
+
+    prescription = models.ForeignKey(
+        Prescription,
+        on_delete=models.CASCADE,
+        related_name="notification_events",
+    )
+    recipient_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="prescription_notification_events",
+    )
+
+    event_type = models.CharField(
+        max_length=40,
+        choices=EventType.choices,
+    )
+    channel = models.CharField(
+        max_length=10,
+        choices=Channel.choices,
+    )
+    recipient = models.CharField(max_length=254)
+
+    deduplication_key = models.CharField(
+        max_length=255,
+        unique=True,
+        editable=False,
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+        db_index=True,
+    )
+
+    payload = models.JSONField(
+        default=dict,
+        blank=True,
+    )
+    attempt_count = models.PositiveSmallIntegerField(
+        default=0,
+    )
+    last_error = models.TextField(blank=True)
+
+    sent_at = models.DateTimeField(
+        null=True,
+        blank=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["created_at", "pk"]
+        indexes = [
+            models.Index(
+                fields=["status", "created_at"],
+                name="presc_notif_status_idx",
+            ),
+        ]
+
+    def clean(self):
+        super().clean()
+
+        self.recipient = self.recipient.strip()
+        self.deduplication_key = (
+            self.deduplication_key.strip()
+        )
+        self.last_error = self.last_error.strip()
+
+        if not self.recipient:
+            raise ValidationError(
+                {"recipient": "A notification recipient is required."}
+            )
+
+        if not self.deduplication_key:
+            raise ValidationError(
+                {
+                    "deduplication_key": (
+                        "A notification deduplication key is required."
+                    )
+                }
+            )
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
+
+    def __str__(self):
+        return (
+            f"Prescription #{self.prescription_id} — "
+            f"{self.event_type} — {self.channel}"
         )

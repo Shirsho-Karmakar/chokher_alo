@@ -1,0 +1,15 @@
+Hello,
+
+{{ design.name }} is back in stock.
+
+SKU: {{ offer.sku }}
+Colour: {{ variant.colour.name }}
+{% if variant.size_label %}Size: {{ variant.size_label }}{% endif %}
+{% if offer.selling_price_including_gst %}
+Price: ₹{{ offer.selling_price_including_gst }}
+{% endif %}
+
+Stock may be limited, so availability can change before checkout.
+
+Thank you,
+Chokher Alo

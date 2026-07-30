@@ -1,0 +1,1 @@
+{{ design.name }} ({{ offer.sku }}) is back in stock{% if offer.selling_price_including_gst %} at ₹{{ offer.selling_price_including_gst }}{% endif %}. Availability may change before checkout. - Chokher Alo

@@ -96,6 +96,7 @@ STAFF_GROUP_PERMISSIONS = {
         ("prescriptions", "view_prescription"),
         ("prescriptions", "change_prescription"),
         ("prescriptions", "review_prescription"),
+        ("prescriptions", "view_prescriptionnotificationevent"),
         ("prescriptions", "view_prescriptioneyevalue"),
         ("prescriptions", "add_prescriptioneyevalue"),
         ("prescriptions", "change_prescriptioneyevalue"),

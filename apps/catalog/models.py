@@ -756,6 +756,7 @@ class ProductStockAlert(models.Model):
         NOTIFIED = "notified", "Notified"
         CANCELLED = "cancelled", "Cancelled"
 
+        FAILED = "failed", "Failed"
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -780,6 +781,15 @@ class ProductStockAlert(models.Model):
         choices=Status.choices,
         default=Status.ACTIVE,
         db_index=True,
+    )
+
+    attempt_count = models.PositiveSmallIntegerField(
+        default=0,
+    )
+    last_error = models.TextField(blank=True)
+    delivery_payload = models.JSONField(
+        default=dict,
+        blank=True,
     )
 
     notified_at = models.DateTimeField(null=True, blank=True)

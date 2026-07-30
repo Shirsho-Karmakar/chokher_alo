@@ -225,6 +225,7 @@ class ProductStockAlertAdmin(admin.ModelAdmin):
         "status",
         "created_at",
         "notified_at",
+        "attempt_count",
     )
     list_filter = (
         "channel",
@@ -247,6 +248,11 @@ class ProductStockAlertAdmin(admin.ModelAdmin):
         "destination",
         "created_at",
         "updated_at",
+        "attempt_count",
+        "last_error",
+        "delivery_payload",
+        "notified_at",
+        "cancelled_at",
     )
 
     def has_add_permission(self, request):

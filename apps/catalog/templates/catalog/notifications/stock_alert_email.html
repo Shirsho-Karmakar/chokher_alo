@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<body>
+  <p>Hello,</p>
+
+  <p>
+    <strong>{{ design.name }}</strong>
+    is back in stock.
+  </p>
+
+  <p>
+    SKU: {{ offer.sku }}<br>
+    Colour: {{ variant.colour.name }}
+    {% if variant.size_label %}
+      <br>Size: {{ variant.size_label }}
+    {% endif %}
+    {% if offer.selling_price_including_gst %}
+      <br>Price:
+      <strong>₹{{ offer.selling_price_including_gst }}</strong>
+    {% endif %}
+  </p>
+
+  <p>
+    Stock may be limited, so availability can change
+    before checkout.
+  </p>
+
+  <p>Thank you,<br>Chokher Alo</p>
+</body>
+</html>

@@ -13,6 +13,9 @@ from .forms import (
     PrescriptionUploadForm,
 )
 from .models import Prescription, PrescriptionEyeValue
+from .notifications import (
+    queue_prescription_submitted_notifications,
+)
 
 
 def _form_errors(form):
@@ -64,6 +67,9 @@ def _serialize_prescription(
         "status": prescription.status,
         "status_label": prescription.get_status_display(),
         "customer_notes": prescription.customer_notes,
+        "customer_review_message": (
+            prescription.customer_review_message or None
+        ),
         "is_approved": prescription.is_approved,
         "created_at": prescription.created_at.isoformat(),
         "updated_at": prescription.updated_at.isoformat(),
@@ -186,6 +192,10 @@ def upload_prescription(request):
                 eye=eye,
                 **eye_form.cleaned_data,
             )
+
+        queue_prescription_submitted_notifications(
+            prescription
+        )
 
     prescription = (
         Prescription.objects

@@ -1,0 +1,20 @@
+Hello,
+
+{% if event_type == "submitted" %}
+A new prescription, #{{ prescription.id }}, has been submitted for review.
+{% elif event_type == "approved" %}
+Your prescription #{{ prescription.id }} has been approved.
+{% elif event_type == "clarification_required" %}
+We need more information for prescription #{{ prescription.id }}.
+{% if payload.customer_review_message %}
+Message: {{ payload.customer_review_message }}
+{% endif %}
+{% elif event_type == "rejected" %}
+Prescription #{{ prescription.id }} could not be approved.
+{% if payload.customer_review_message %}
+Reason: {{ payload.customer_review_message }}
+{% endif %}
+{% endif %}
+
+Thank you,
+Chokher Alo
