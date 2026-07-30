@@ -48,7 +48,15 @@ STAFF_GROUP_PERMISSIONS = {
         ("catalog", "change_productimage"),
     ),
     INVENTORY_MANAGER: (),
-    PRESCRIPTION_REVIEWER: (),
+    PRESCRIPTION_REVIEWER: (
+        ("accounts", "view_user"),
+        ("prescriptions", "view_prescription"),
+        ("prescriptions", "change_prescription"),
+        ("prescriptions", "review_prescription"),
+        ("prescriptions", "view_prescriptioneyevalue"),
+        ("prescriptions", "add_prescriptioneyevalue"),
+        ("prescriptions", "change_prescriptioneyevalue"),
+    ),
     ORDER_MANAGER: (
         ("locations", "view_address"),
         ("locations", "view_serviceablepincode"),

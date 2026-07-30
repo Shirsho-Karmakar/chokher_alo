@@ -33,6 +33,7 @@ INSTALLED_APPS = [
     "apps.wholesale.apps.WholesaleConfig",
     "apps.locations.apps.LocationsConfig",
     "apps.catalog.apps.CatalogConfig",
+    "apps.prescriptions.apps.PrescriptionsConfig",
 ]
 
 
