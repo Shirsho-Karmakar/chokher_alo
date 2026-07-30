@@ -9,6 +9,10 @@ urlpatterns = [
         include("apps.accounts.urls"),
     ),
     path(
+        "wholesale/catalogue/",
+        include("apps.wholesale_catalog.urls"),
+    ),
+    path(
         "wholesale/",
         include("apps.wholesale.urls"),
     ),
