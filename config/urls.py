@@ -16,4 +16,8 @@ urlpatterns = [
         "prescriptions/",
         include("apps.prescriptions.urls"),
     ),
+    path(
+        "lenses/",
+        include("apps.lenses.urls"),
+    ),
 ]
