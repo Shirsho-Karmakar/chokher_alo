@@ -43,3 +43,22 @@ if DATABASE_URL:
         default=0,
     )
 
+# Register Vercel's per-request OIDC header before private Blob operations.
+MIDDLEWARE.insert(0,  # noqa: F405
+    "config.vercel_oidc_middleware.VercelOidcHeaderMiddleware"
+)
+
+# Private Vercel Blob store connected to this project.
+BLOB_STORE_ID = env("BLOB_STORE_ID", default="")  # noqa: F405
+
+if BLOB_STORE_ID:
+    STORAGES = {
+        "default": {
+            "BACKEND": "config.storage.VercelPrivateBlobStorage",
+        },
+        "staticfiles": {
+            "BACKEND": (
+                "django.contrib.staticfiles.storage.StaticFilesStorage"
+            ),
+        },
+    }
