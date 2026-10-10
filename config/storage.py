@@ -41,15 +41,7 @@ class VercelPrivateBlobStorage(Storage):
         if result is None or result.status_code != 200:
             raise FileNotFoundError(name)
 
-        stream = result.stream
-        if stream is None:
-            data = b""
-        elif hasattr(stream, "read"):
-            data = stream.read()
-        else:
-            data = b"".join(stream)
-
-        return ContentFile(data, name=name)
+        return ContentFile(result.content, name=name)
 
     def delete(self, name):
         if name:
