@@ -1,3 +1,5 @@
+from .invoice_pdf import build_retail_invoice_pdf
+from django.http import HttpResponse
 import json
 from decimal import Decimal
 
@@ -216,7 +218,7 @@ def _serialize_order_summary(order):
             order.grand_total_including_gst
         ),
         "currency": order.currency,
-        "can_customer_cancel": order.can_customer_cancel,
+        "can_customer_cancel": False,
         "cancellation_block_reason": (
             order.cancellation_block_reason
         ),
@@ -836,6 +838,16 @@ def order_detail(request, order_number):
 @login_required
 @require_POST
 def cancel_order(request, order_number):
+    return _error_response(
+        code="cancellation_disabled",
+        message=(
+            "Order cancellation is not available during the initial "
+            "launch phase."
+        ),
+        status=403,
+    )
+
+
     form = RetailOrderCancellationForm(request.POST)
 
     if not form.is_valid():
@@ -1808,3 +1820,61 @@ def staff_record_customer_frame_received(
         return _operation_error_response(exc)
 
     return _staff_order_response(group.order)
+
+
+def order_invoice(request, order_number):
+    if request.method != "GET":
+        return JsonResponse(
+            {
+                "ok": False,
+                "code": "method_not_allowed",
+                "message": "GET required.",
+            },
+            status=405,
+        )
+
+    if not request.user.is_authenticated:
+        return JsonResponse(
+            {
+                "ok": False,
+                "code": "authentication_required",
+                "message": "Sign in to download this invoice.",
+            },
+            status=401,
+        )
+
+    order = (
+        RetailOrder.objects
+        .select_related("user")
+        .prefetch_related("items")
+        .filter(
+            order_number=order_number,
+            user=request.user,
+        )
+        .first()
+    )
+
+    if order is None:
+        return JsonResponse(
+            {
+                "ok": False,
+                "code": "order_not_found",
+                "message": "Order not found.",
+            },
+            status=404,
+        )
+
+    pdf_bytes = build_retail_invoice_pdf(order)
+
+    response = HttpResponse(
+        pdf_bytes,
+        content_type="application/pdf",
+    )
+    response["Content-Disposition"] = (
+        'attachment; filename="'
+        f'Chokher-Alo-Invoice-{order.order_number}.pdf'
+        '"'
+    )
+    response["Cache-Control"] = "private, no-store"
+    return response
+

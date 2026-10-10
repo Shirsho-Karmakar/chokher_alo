@@ -347,6 +347,11 @@ def _prescription_eye(
     variant,
     eye,
 ):
+    # Wholesale stock boxes are selected by exact lens power, not by
+    # a customer prescription. Legacy prescription-linked rows still work.
+    if prescription is None:
+        return None
+
     if prescription.user_id != account.user_id:
         raise WholesaleCartError(
             "prescription_not_owned",
@@ -400,6 +405,9 @@ def _decimal_snapshot(value):
 
 
 def _eye_snapshot(eye_value):
+    if eye_value is None:
+        return {}
+
     return {
         "eye": eye_value.eye,
         "sphere": _decimal_snapshot(
@@ -827,9 +835,10 @@ def set_wholesale_cart_item(
     variant = _variant_queryset(lock=True).get(
         pk=variant.pk
     )
-    prescription = _prescription_queryset().get(
-        pk=prescription.pk
-    )
+    if prescription is not None:
+        prescription = _prescription_queryset().get(
+            pk=prescription.pk
+        )
 
     _prescription_eye(
         account=account,

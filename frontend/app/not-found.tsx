@@ -1,0 +1,2 @@
+import Link from "next/link";
+export default function NotFound() { return <div className="container section" style={{textAlign: "center"}}><div className="eyebrow" style={{justifyContent: "center"}}>404</div><h1 className="display-title" style={{fontSize: 70}}>Nothing to see here.</h1><p style={{color: "var(--muted)"}}>The page may have moved or the product is no longer available.</p><Link className="btn primary" href="/shop">Back to shop</Link></div>; }

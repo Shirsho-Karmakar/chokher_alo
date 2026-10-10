@@ -1,8 +1,9 @@
 from django.conf import settings
-from django.contrib.auth import login
+from django.contrib.auth import login, logout
 from django.http import JsonResponse
 from django.urls import reverse
-from django.views.decorators.http import require_POST
+from django.views.decorators.csrf import ensure_csrf_cookie
+from django.views.decorators.http import require_GET, require_POST
 
 from apps.accounts.authentication import (
     PublicPhoneLoginNotAllowed,
@@ -87,15 +88,25 @@ def _request_otp(request, *, purpose: str) -> JsonResponse:
             status=503,
         )
 
+    response_data = {
+    "ok": True,
+    "challenge_id": str(challenge.id),
+    "expires_in_seconds": settings.PHONE_OTP_TTL_SECONDS,
+    "resend_after_seconds": settings.PHONE_OTP_RESEND_SECONDS,
+    }
+
+    development_otp = getattr(
+        challenge,
+        "development_otp",
+        None,
+    )
+
+    # Never expose OTPs in production.
+    if settings.DEBUG and development_otp:
+        response_data["development_otp"] = development_otp
+
     return JsonResponse(
-        {
-            "ok": True,
-            "challenge_id": str(challenge.id),
-            "expires_in_seconds": settings.PHONE_OTP_TTL_SECONDS,
-            "resend_after_seconds": (
-                settings.PHONE_OTP_RESEND_SECONDS
-            ),
-        },
+        response_data,
         status=201,
     )
 
@@ -169,6 +180,15 @@ def _verify_otp(
         backend=DJANGO_MODEL_BACKEND,
     )
 
+    # This browser session is explicitly retail OR wholesale.
+    # The customer must sign out before entering the other portal.
+    request.session["account_mode"] = (
+        "wholesale"
+        if create_wholesale_account
+        else "retail"
+    )
+    request.session.modified = True
+
     response_data = {
         "ok": True,
         "user_created": user_created,
@@ -234,3 +254,56 @@ def verify_wholesale_phone_otp(request):
         purpose=PhoneOTPChallenge.Purpose.WHOLESALE_LOGIN,
         create_wholesale_account=True,
     )
+
+
+@require_GET
+@ensure_csrf_cookie
+def csrf_cookie(request):
+    return JsonResponse({"ok": True})
+
+
+@require_GET
+def session_status(request):
+    user = request.user
+    if not getattr(user, "is_authenticated", False):
+        return JsonResponse({"ok": True, "authenticated": False, "account_mode": None, "user": None, "wholesale": None})
+
+    wholesale = None
+    try:
+        account = user.wholesale_account
+    except WholesaleAccount.DoesNotExist:
+        account = None
+
+    if account is not None:
+        wholesale = {
+            "reference_id": account.reference_id,
+            "status": account.status,
+            "status_label": account.get_status_display(),
+            "is_approved": account.is_approved,
+        }
+
+    account_mode = request.session.get(
+        "account_mode",
+        "retail",
+    )
+
+    return JsonResponse({
+        "ok": True,
+        "authenticated": True,
+        "account_mode": account_mode,
+        "user": {
+            "id": user.pk,
+            "phone_number": user.phone_number,
+            "phone_verified": bool(user.phone_verified),
+            "email": user.email or None,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+        },
+        "wholesale": wholesale,
+    })
+
+
+@require_POST
+def logout_view(request):
+    logout(request)
+    return JsonResponse({"ok": True})

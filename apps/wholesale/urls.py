@@ -9,6 +9,11 @@ app_name = "wholesale"
 
 urlpatterns = [
     path(
+        "profile/",
+        views.profile,
+        name="profile",
+    ),
+    path(
         "login/",
         views.login_information,
         name="login",

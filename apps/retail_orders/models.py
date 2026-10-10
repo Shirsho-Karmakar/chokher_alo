@@ -176,6 +176,7 @@ class RetailCheckoutPolicy(models.Model):
     )
 
     pay_at_store_enabled = models.BooleanField(default=True)
+    cod_enabled = models.BooleanField(default=True)
 
     currency = models.CharField(
         max_length=3,
@@ -249,6 +250,7 @@ class RetailOrder(models.Model):
 
     class PaymentMethod(models.TextChoices):
         RAZORPAY = "razorpay", "Online payment"
+        COD = "cod", "Cash on delivery"
         PAY_AT_STORE = "pay_at_store", "Pay at store"
 
     class PaymentStatus(models.TextChoices):
@@ -465,6 +467,16 @@ class RetailOrder(models.Model):
         ):
             errors["payment_method"] = (
                 "Pay at store is only available for store pickup."
+            )
+
+        if (
+            self.payment_method
+            == self.PaymentMethod.COD
+            and self.fulfillment_method
+            != self.FulfillmentMethod.DELIVERY
+        ):
+            errors["payment_method"] = (
+                "Cash on delivery is only available for delivery orders."
             )
 
         expected_total = _money(
@@ -1027,6 +1039,10 @@ class RetailStockReservation(models.Model):
             "pay_at_store",
             "Pay-at-store order",
         )
+        COD = (
+            "cod",
+            "Cash-on-delivery order",
+        )
         MANUAL = "manual", "Manual reservation"
 
     class Status(models.TextChoices):
@@ -1291,11 +1307,14 @@ class RetailPaymentAttempt(models.Model):
 
         if (
             self.payment_method
-            == RetailOrder.PaymentMethod.PAY_AT_STORE
+            in {
+                RetailOrder.PaymentMethod.PAY_AT_STORE,
+                RetailOrder.PaymentMethod.COD,
+            }
             and self.allowed_payment_methods
         ):
             errors["allowed_payment_methods"] = (
-                "Pay-at-store attempts must not contain "
+                "Offline payment attempts must not contain "
                 "online payment methods."
             )
 

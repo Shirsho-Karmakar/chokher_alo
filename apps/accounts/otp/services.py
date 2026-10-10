@@ -217,6 +217,12 @@ def issue_phone_otp(
         ]
     )
 
+    # Development convenience only.
+    # ConsoleOTPProvider does not send a real SMS, so expose the OTP
+    # temporarily to the local frontend.
+    if settings.DEBUG and provider.provider_name == "console":
+        challenge.development_otp = code
+
     return challenge
 
 

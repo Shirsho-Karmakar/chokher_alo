@@ -26,19 +26,8 @@ urlpatterns = [
         views.configure_powered_item,
         name="configure_powered",
     ),
-    path(
-        "items/customer-owned-frame/",
-        views.add_customer_owned_frame,
-        name="add_customer_owned_frame",
-    ),
-    path(
-        (
-            "items/customer-owned-frame/"
-            "<int:item_id>/configure/"
-        ),
-        views.configure_customer_owned_frame,
-        name="configure_customer_owned_frame",
-    ),
+    # Customer-owned frame service is intentionally not exposed.
+    # Chokher Alo only fits prescription lenses into frames sold by the store.
     path(
         "items/<int:item_id>/quantity/",
         views.update_item_quantity,

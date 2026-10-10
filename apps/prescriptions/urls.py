@@ -22,6 +22,11 @@ urlpatterns = [
         name="detail",
     ),
     path(
+        "<int:prescription_id>/remove/",
+        views.remove_prescription,
+        name="remove",
+    ),
+    path(
         "<int:prescription_id>/file/",
         views.prescription_file_download,
         name="file_download",

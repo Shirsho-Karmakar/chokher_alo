@@ -8,6 +8,7 @@ from django.db.models import Sum
 from django.utils import timezone
 
 from apps.catalog.models import ProductVariant
+from apps.locations.constants import IndianState
 from apps.locations.models import Address, ServiceablePincode
 from apps.retail_cart.models import (
     CustomerOwnedFrameService,
@@ -161,8 +162,15 @@ def _resolve_addresses(
             ),
         )
 
+        if shipping.state != IndianState.WEST_BENGAL:
+            raise RetailCheckoutError(
+                "launch_region_only",
+                "Chokher Alo currently delivers only within West Bengal.",
+            )
+
         serviceable = ServiceablePincode.objects.filter(
             postal_code=shipping.postal_code,
+            state=IndianState.WEST_BENGAL,
             status=ServiceablePincode.Status.ACTIVE,
         ).exists()
 
@@ -215,6 +223,7 @@ def _policy_snapshot(policy):
             policy.cancellation_window_hours
         ),
         "pay_at_store_enabled": policy.pay_at_store_enabled,
+        "cod_enabled": policy.cod_enabled,
         "currency": policy.currency,
     }
 
@@ -840,7 +849,11 @@ def _allocate_stock(
                 item.product_variant_id
             ],
             quantity=item.quantity,
-            reason=RetailStockReservation.Reason.PAY_AT_STORE,
+            reason=(
+                RetailStockReservation.Reason.COD
+                if payment_method == RetailOrder.PaymentMethod.COD
+                else RetailStockReservation.Reason.PAY_AT_STORE
+            ),
             status=RetailStockReservation.Status.CONSUMED,
             consumed_at=now,
         )
@@ -912,6 +925,18 @@ def create_retail_checkout(
             raise RetailCheckoutError(
                 "pay_at_store_requires_pickup",
                 "Pay at store is only available for store pickup.",
+            )
+
+    if payment_method == RetailOrder.PaymentMethod.COD:
+        if not policy.cod_enabled:
+            raise RetailCheckoutError(
+                "cod_disabled",
+                "Cash on delivery is currently unavailable.",
+            )
+        if fulfillment_method != RetailOrder.FulfillmentMethod.DELIVERY:
+            raise RetailCheckoutError(
+                "cod_requires_delivery",
+                "Cash on delivery is only available for delivery orders.",
             )
 
     try:
@@ -2062,6 +2087,18 @@ def preview_retail_checkout(
                 "Pay at store is only available for store pickup.",
             )
 
+    if payment_method == RetailOrder.PaymentMethod.COD:
+        if not policy.cod_enabled:
+            raise RetailCheckoutError(
+                "cod_disabled",
+                "Cash on delivery is currently unavailable.",
+            )
+        if fulfillment_method != RetailOrder.FulfillmentMethod.DELIVERY:
+            raise RetailCheckoutError(
+                "cod_requires_delivery",
+                "Cash on delivery is only available for delivery orders.",
+            )
+
     try:
         validation = refresh_retail_cart(cart=cart)
     except RetailCartError as exc:
@@ -3079,10 +3116,47 @@ def mark_order_shipped(
     )
 
 
+@transaction.atomic
 def mark_order_delivered(*, order, actor, note=""):
-    return transition_retail_order(
+    order = transition_retail_order(
         order=order,
         new_status=RetailOrder.Status.DELIVERED,
         actor=actor,
         note=note,
     )
+
+    if (
+        order.payment_method == RetailOrder.PaymentMethod.COD
+        and order.payment_status != RetailOrder.PaymentStatus.PAID
+    ):
+        now = timezone.now()
+        attempt = (
+            RetailPaymentAttempt.objects
+            .select_for_update()
+            .filter(order=order)
+            .order_by("-created_at")
+            .first()
+        )
+        if attempt is not None:
+            attempt.status = RetailPaymentAttempt.Status.CAPTURED
+            attempt.paid_at = now
+            attempt.response_payload = {
+                **attempt.response_payload,
+                "cash_collected_on_delivery": True,
+            }
+            attempt.save(update_fields=[
+                "status", "paid_at", "response_payload", "updated_at"
+            ])
+
+        order.payment_status = RetailOrder.PaymentStatus.PAID
+        order.payment_confirmed_at = now
+        order.save(update_fields=[
+            "payment_status", "payment_confirmed_at", "updated_at"
+        ])
+        _queue_order_notification(
+            order=order,
+            event_type=RetailOrderNotificationEvent.EventType.PAYMENT_CONFIRMED,
+            payload={"payment_method": RetailOrder.PaymentMethod.COD},
+        )
+
+    return order

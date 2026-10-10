@@ -1,4 +1,6 @@
-from django.contrib import admin
+from django import forms
+from django.contrib import admin, messages
+from django.contrib.admin.helpers import ActionForm
 
 from .models import (
     WholesaleFulfillment,
@@ -12,6 +14,100 @@ from .models import (
     WholesaleStockReservation,
 )
 
+from .services import (
+    WholesaleCheckoutError,
+    mark_wholesale_order_delivered,
+    mark_wholesale_order_shipped,
+    start_wholesale_order_processing,
+)
+
+
+
+
+class WholesaleFulfillmentActionForm(ActionForm):
+    carrier_name = forms.CharField(
+        required=False,
+        max_length=100,
+        label="Carrier",
+        widget=forms.TextInput(
+            attrs={"placeholder": "e.g. DTDC / Delhivery"}
+        ),
+    )
+    tracking_number = forms.CharField(
+        required=False,
+        max_length=150,
+        label="Tracking / AWB",
+        widget=forms.TextInput(
+            attrs={"placeholder": "Required for Mark shipped"}
+        ),
+    )
+    fulfillment_note = forms.CharField(
+        required=False,
+        max_length=1000,
+        label="Internal note",
+        widget=forms.TextInput(
+            attrs={"placeholder": "Optional note"}
+        ),
+    )
+
+
+def _wholesale_action_value(request, key):
+    return (request.POST.get(key) or "").strip()
+
+
+def _wholesale_run_action(
+    *,
+    admin_obj,
+    request,
+    queryset,
+    operation,
+    success_label,
+    shipment=False,
+):
+    completed = 0
+    carrier = _wholesale_action_value(request, "carrier_name")
+    tracking = _wholesale_action_value(request, "tracking_number")
+    note = _wholesale_action_value(request, "fulfillment_note")
+
+    if shipment and (not carrier or not tracking):
+        admin_obj.message_user(
+            request,
+            (
+                "Carrier and Tracking / AWB are required before "
+                "using Mark selected orders shipped."
+            ),
+            level=messages.ERROR,
+        )
+        return
+
+    for order in queryset.order_by("created_at"):
+        try:
+            kwargs = {
+                "order": order,
+                "actor": request.user,
+                "note": note,
+            }
+
+            if shipment:
+                kwargs["carrier_name"] = carrier
+                kwargs["tracking_number"] = tracking
+
+            operation(**kwargs)
+            completed += 1
+
+        except WholesaleCheckoutError as exc:
+            admin_obj.message_user(
+                request,
+                f"{order.order_number}: {exc}",
+                level=messages.ERROR,
+            )
+
+    if completed:
+        admin_obj.message_user(
+            request,
+            f"{completed} wholesale order(s) {success_label}.",
+            level=messages.SUCCESS,
+        )
 
 class WholesaleOrderItemInline(admin.TabularInline):
     model = WholesaleOrderItem
@@ -75,6 +171,13 @@ class WholesaleStockReservationInline(admin.TabularInline):
 
 @admin.register(WholesaleOrder)
 class WholesaleOrderAdmin(admin.ModelAdmin):
+    action_form = WholesaleFulfillmentActionForm
+    actions = (
+        "start_processing_action",
+        "mark_shipped_action",
+        "mark_delivered_action",
+    )
+
     list_display = (
         "order_number",
         "wholesale_account",
@@ -122,11 +225,43 @@ class WholesaleOrderAdmin(admin.ModelAdmin):
         WholesaleStockReservationInline,
     )
 
+
+    @admin.action(description="Fulfilment: start processing")
+    def start_processing_action(self, request, queryset):
+        _wholesale_run_action(
+            admin_obj=self,
+            request=request,
+            queryset=queryset,
+            operation=start_wholesale_order_processing,
+            success_label="moved to processing",
+        )
+
+    @admin.action(description="Fulfilment: mark shipped")
+    def mark_shipped_action(self, request, queryset):
+        _wholesale_run_action(
+            admin_obj=self,
+            request=request,
+            queryset=queryset,
+            operation=mark_wholesale_order_shipped,
+            success_label="marked shipped",
+            shipment=True,
+        )
+
+    @admin.action(description="Fulfilment: mark delivered")
+    def mark_delivered_action(self, request, queryset):
+        _wholesale_run_action(
+            admin_obj=self,
+            request=request,
+            queryset=queryset,
+            operation=mark_wholesale_order_delivered,
+            success_label="marked delivered",
+        )
+
     def has_add_permission(self, request):
         return False
 
     def has_change_permission(self, request, obj=None):
-        return False
+        return request.user.is_staff
 
     def has_delete_permission(self, request, obj=None):
         return request.user.is_superuser

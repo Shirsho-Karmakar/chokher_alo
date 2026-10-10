@@ -80,6 +80,16 @@ class Prescription(models.Model):
         db_index=True,
     )
 
+    customer_archived_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        db_index=True,
+        help_text=(
+            "When set, this prescription is hidden from the "
+            "customer account but retained for protected order records."
+        ),
+    )
+
     customer_notes = models.TextField(blank=True)
     customer_review_message = models.TextField(
         blank=True,

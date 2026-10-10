@@ -636,6 +636,16 @@ def order_detail(request, order_number):
 @login_required
 @require_POST
 def order_cancel(request, order_number):
+    return _error_response(
+        code="cancellation_disabled",
+        message=(
+            "Trade order cancellation is not available during the "
+            "initial launch phase."
+        ),
+        status=403,
+    )
+
+
     form = WholesaleOrderCancellationForm(
         request.POST
     )

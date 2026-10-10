@@ -512,6 +512,7 @@ def add_powered_item(request):
         Prescription,
         pk=form.cleaned_data["prescription_id"],
         user=request.user,
+        customer_archived_at__isnull=True,
     )
 
     try:
@@ -597,6 +598,7 @@ def add_customer_owned_frame(request):
         Prescription,
         pk=form.cleaned_data["prescription_id"],
         user=request.user,
+        customer_archived_at__isnull=True,
     )
 
     try:

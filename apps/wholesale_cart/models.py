@@ -89,12 +89,16 @@ class WholesaleCartItem(models.Model):
     prescription = models.ForeignKey(
         Prescription,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="wholesale_cart_items",
     )
 
     eye = models.CharField(
         max_length=10,
         choices=PrescriptionEyeValue.Eye.choices,
+        blank=True,
+        default="",
     )
     boxes = models.PositiveIntegerField(
         validators=[MinValueValidator(1)],

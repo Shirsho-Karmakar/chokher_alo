@@ -231,12 +231,16 @@ class WholesaleOrderItem(models.Model):
     prescription = models.ForeignKey(
         Prescription,
         on_delete=models.PROTECT,
+        null=True,
+        blank=True,
         related_name="wholesale_order_items",
     )
 
     eye = models.CharField(
         max_length=10,
         choices=PrescriptionEyeValue.Eye.choices,
+        blank=True,
+        default="",
     )
     boxes = models.PositiveIntegerField()
     physical_units_reserved = models.PositiveIntegerField()

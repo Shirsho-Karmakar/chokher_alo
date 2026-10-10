@@ -7,6 +7,12 @@ app_name = "retail_orders"
 
 urlpatterns = [
     path(
+        "orders/<str:order_number>/invoice/",
+        views.order_invoice,
+        name="order_invoice",
+    ),
+
+    path(
         "checkout/preview/",
         views.checkout_preview,
         name="checkout_preview",

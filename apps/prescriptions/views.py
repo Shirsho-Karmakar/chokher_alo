@@ -6,6 +6,7 @@ from django.db import transaction
 from django.http import FileResponse, Http404, JsonResponse
 from django.shortcuts import get_object_or_404
 from django.urls import reverse
+from django.utils import timezone
 from django.views.decorators.http import require_GET, require_POST
 
 from .forms import (
@@ -116,6 +117,7 @@ def _accessible_prescription(*, user, prescription_id):
         queryset,
         pk=prescription_id,
         user=user,
+        customer_archived_at__isnull=True,
     )
 
 
@@ -219,7 +221,10 @@ def upload_prescription(request):
 def prescription_list(request):
     prescriptions = (
         Prescription.objects
-        .filter(user=request.user)
+        .filter(
+            user=request.user,
+            customer_archived_at__isnull=True,
+        )
         .prefetch_related("eye_values")
         .order_by("-created_at")
     )
@@ -254,6 +259,41 @@ def prescription_detail(request, prescription_id):
 
 
 @login_required
+@require_POST
+def remove_prescription(request, prescription_id):
+    prescription = get_object_or_404(
+        Prescription,
+        pk=prescription_id,
+        user=request.user,
+        customer_archived_at__isnull=True,
+    )
+
+    # If this prescription is attached to an OPEN retail cart, remove
+    # those unfinished cart items too. Historical orders are retained.
+    for configuration in prescription.powered_cart_configurations.filter(
+        cart_item__cart__user=request.user,
+        cart_item__cart__status="open",
+    ).select_related("cart_item"):
+        configuration.cart_item.delete()
+
+    if hasattr(prescription, "owned_frame_cart_services"):
+        for service in prescription.owned_frame_cart_services.filter(
+            cart_item__cart__user=request.user,
+            cart_item__cart__status="open",
+        ).select_related("cart_item"):
+            service.cart_item.delete()
+
+    prescription.customer_archived_at = timezone.now()
+    prescription.save(update_fields=["customer_archived_at"])
+
+    return JsonResponse({
+        "ok": True,
+        "prescription_id": prescription.pk,
+        "removed_from_account": True,
+    })
+
+
+@login_required
 @require_GET
 def prescription_file_download(
     request,
@@ -278,9 +318,12 @@ def prescription_file_download(
 
     content_type, _ = mimetypes.guess_type(download_name)
 
+
+    inline_preview = request.GET.get("inline") == "1"
+
     response = FileResponse(
         prescription.prescription_file.open("rb"),
-        as_attachment=True,
+        as_attachment=not inline_preview,
         filename=download_name,
         content_type=(
             content_type or "application/octet-stream"

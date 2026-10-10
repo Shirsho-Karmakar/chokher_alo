@@ -163,6 +163,7 @@ def compatible_lens_catalogue(request):
         Prescription.objects.prefetch_related("eye_values"),
         pk=form.cleaned_data["prescription_id"],
         user=request.user,
+        customer_archived_at__isnull=True,
     )
 
     if prescription.status != Prescription.Status.APPROVED:
@@ -216,6 +217,7 @@ def lens_quote(request):
         Prescription.objects.prefetch_related("eye_values"),
         pk=form.cleaned_data["prescription_id"],
         user=request.user,
+        customer_archived_at__isnull=True,
     )
 
     lens = get_object_or_404(

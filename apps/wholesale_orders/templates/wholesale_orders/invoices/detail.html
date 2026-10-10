@@ -113,7 +113,7 @@
     <thead>
       <tr>
         <th>Item</th>
-        <th>Eye</th>
+        <th>Power</th>
         <th>Boxes</th>
         <th>GST</th>
         <th class="number">Box price</th>
@@ -129,7 +129,7 @@
             {{ item.catalogue_code }}
             / {{ item.sku }}
           </td>
-          <td>{{ item.eye }}</td>
+          <td>{{ item.variant.prescription_rule_name|default:'Stock power' }}</td>
           <td>{{ item.boxes }}</td>
           <td>
             {% if item.gst_rate %}

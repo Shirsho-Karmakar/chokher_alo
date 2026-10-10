@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.utils import timezone
+from django.urls import reverse
+from django.utils.html import format_html
 
 from .models import (
     Prescription,
@@ -13,7 +15,7 @@ from .notifications import (
 
 class PrescriptionEyeValueInline(admin.StackedInline):
     model = PrescriptionEyeValue
-    extra = 0
+    extra = 2
     max_num = 2
 
     fields = (
@@ -54,6 +56,7 @@ class PrescriptionAdmin(admin.ModelAdmin):
     )
     autocomplete_fields = ("user",)
     readonly_fields = (
+        "prescription_preview",
         "reviewed_by",
         "reviewed_at",
         "created_at",
@@ -68,6 +71,7 @@ class PrescriptionAdmin(admin.ModelAdmin):
                 "fields": (
                     "user",
                     "prescription_file",
+                    "prescription_preview",
                     "customer_notes",
                 )
             },
@@ -93,6 +97,21 @@ class PrescriptionAdmin(admin.ModelAdmin):
             },
         ),
     )
+
+    @admin.display(description="Secure prescription preview")
+    def prescription_preview(self, obj):
+        if not obj or not obj.pk or not obj.prescription_file:
+            return "No prescription file uploaded."
+
+        url = reverse(
+            "prescriptions:file_download",
+            kwargs={"prescription_id": obj.pk},
+        )
+
+        return format_html(
+            '<a class="button" href="{}?inline=1" target="_blank" rel="noopener">View prescription</a>',
+            url,
+        )
 
     def save_model(self, request, obj, form, change):
         previous_status = None

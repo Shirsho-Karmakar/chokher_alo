@@ -1,4 +1,6 @@
-from django.contrib import admin
+from django import forms
+from django.contrib import admin, messages
+from django.contrib.admin.helpers import ActionForm
 
 from .models import (
     RetailCheckoutPolicy,
@@ -15,6 +17,102 @@ from .models import (
     StoreLocation,
 )
 
+from .services import (
+    RetailOrderOperationError,
+    mark_order_delivered,
+    mark_order_packed,
+    mark_order_shipped,
+    start_order_processing,
+    start_order_production,
+)
+
+
+
+
+class RetailFulfillmentActionForm(ActionForm):
+    carrier_name = forms.CharField(
+        required=False,
+        max_length=100,
+        label="Carrier",
+        widget=forms.TextInput(
+            attrs={"placeholder": "e.g. DTDC / Delhivery"}
+        ),
+    )
+    tracking_number = forms.CharField(
+        required=False,
+        max_length=150,
+        label="Tracking / AWB",
+        widget=forms.TextInput(
+            attrs={"placeholder": "Required for Mark shipped"}
+        ),
+    )
+    fulfillment_note = forms.CharField(
+        required=False,
+        max_length=1000,
+        label="Internal note",
+        widget=forms.TextInput(
+            attrs={"placeholder": "Optional note"}
+        ),
+    )
+
+
+def _retail_action_value(request, key):
+    return (request.POST.get(key) or "").strip()
+
+
+def _retail_run_action(
+    *,
+    admin_obj,
+    request,
+    queryset,
+    operation,
+    success_label,
+    shipment=False,
+):
+    completed = 0
+    carrier = _retail_action_value(request, "carrier_name")
+    tracking = _retail_action_value(request, "tracking_number")
+    note = _retail_action_value(request, "fulfillment_note")
+
+    if shipment and (not carrier or not tracking):
+        admin_obj.message_user(
+            request,
+            (
+                "Carrier and Tracking / AWB are required before "
+                "using Mark selected orders shipped."
+            ),
+            level=messages.ERROR,
+        )
+        return
+
+    for order in queryset.order_by("created_at"):
+        try:
+            kwargs = {
+                "order": order,
+                "actor": request.user,
+                "note": note,
+            }
+
+            if shipment:
+                kwargs["carrier_name"] = carrier
+                kwargs["tracking_number"] = tracking
+
+            operation(**kwargs)
+            completed += 1
+
+        except RetailOrderOperationError as exc:
+            admin_obj.message_user(
+                request,
+                f"{order.order_number}: {exc}",
+                level=messages.ERROR,
+            )
+
+    if completed:
+        admin_obj.message_user(
+            request,
+            f"{completed} retail order(s) {success_label}.",
+            level=messages.SUCCESS,
+        )
 
 @admin.register(StoreLocation)
 class StoreLocationAdmin(admin.ModelAdmin):
@@ -50,11 +148,13 @@ class RetailCheckoutPolicyAdmin(admin.ModelAdmin):
         "payment_reservation_minutes",
         "cancellation_window_hours",
         "pay_at_store_enabled",
+        "cod_enabled",
         "is_active",
     )
     list_filter = (
         "is_active",
         "pay_at_store_enabled",
+        "cod_enabled",
     )
 
 
@@ -97,6 +197,15 @@ class RetailFulfillmentGroupInline(admin.TabularInline):
 
 @admin.register(RetailOrder)
 class RetailOrderAdmin(admin.ModelAdmin):
+    action_form = RetailFulfillmentActionForm
+    actions = (
+        "start_processing_action",
+        "start_production_action",
+        "mark_packed_action",
+        "mark_shipped_action",
+        "mark_delivered_action",
+    )
+
     list_display = (
         "order_number",
         "user",
@@ -155,6 +264,58 @@ class RetailOrderAdmin(admin.ModelAdmin):
         RetailOrderItemInline,
         RetailFulfillmentGroupInline,
     )
+
+
+    @admin.action(description="Fulfilment: start processing")
+    def start_processing_action(self, request, queryset):
+        _retail_run_action(
+            admin_obj=self,
+            request=request,
+            queryset=queryset,
+            operation=start_order_processing,
+            success_label="moved to processing",
+        )
+
+    @admin.action(description="Fulfilment: start powered-lens production")
+    def start_production_action(self, request, queryset):
+        _retail_run_action(
+            admin_obj=self,
+            request=request,
+            queryset=queryset,
+            operation=start_order_production,
+            success_label="moved to production",
+        )
+
+    @admin.action(description="Fulfilment: mark packed")
+    def mark_packed_action(self, request, queryset):
+        _retail_run_action(
+            admin_obj=self,
+            request=request,
+            queryset=queryset,
+            operation=mark_order_packed,
+            success_label="marked packed",
+        )
+
+    @admin.action(description="Fulfilment: mark shipped")
+    def mark_shipped_action(self, request, queryset):
+        _retail_run_action(
+            admin_obj=self,
+            request=request,
+            queryset=queryset,
+            operation=mark_order_shipped,
+            success_label="marked shipped",
+            shipment=True,
+        )
+
+    @admin.action(description="Fulfilment: mark delivered")
+    def mark_delivered_action(self, request, queryset):
+        _retail_run_action(
+            admin_obj=self,
+            request=request,
+            queryset=queryset,
+            operation=mark_order_delivered,
+            success_label="marked delivered",
+        )
 
     def has_add_permission(self, request):
         return False
