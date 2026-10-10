@@ -32,3 +32,14 @@ SECURE_HSTS_PRELOAD = env.bool(  # noqa: F405
 )
 SECURE_CONTENT_TYPE_NOSNIFF = True
 X_FRAME_OPTIONS = "DENY"
+
+# Vercel / Neon
+DATABASE_URL = env("DATABASE_URL", default="")  # noqa: F405
+
+if DATABASE_URL:
+    DATABASES["default"] = env.db_url_config(DATABASE_URL)  # noqa: F405
+    DATABASES["default"]["CONN_MAX_AGE"] = env.int(  # noqa: F405
+        "DB_CONN_MAX_AGE",
+        default=0,
+    )
+
