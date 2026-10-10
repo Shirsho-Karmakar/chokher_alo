@@ -250,3 +250,16 @@ WHOLESALE_INVOICE_SELLER_EMAIL = os.environ.get(
     "WHOLESALE_INVOICE_SELLER_EMAIL",
     "",
 )
+
+# MSG91 OTP delivery
+MSG91_AUTH_KEY = env("MSG91_AUTH_KEY", default="")
+MSG91_TEMPLATE_ID = env("MSG91_TEMPLATE_ID", default="")
+MSG91_OTP_ENDPOINT = env(
+    "MSG91_OTP_ENDPOINT",
+    default="https://control.msg91.com/api/v5/otp",
+)
+MSG91_TIMEOUT_SECONDS = env.int(
+    "MSG91_TIMEOUT_SECONDS",
+    default=10,
+)
+
